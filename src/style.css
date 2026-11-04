@@ -185,3 +185,10 @@ section.inner { padding: 44px 16px; }
 .toy-btns .btn { padding: 4px 9px; font-size: 12.5px; }
 .toy .slider { grid-template-columns: 76px 1fr 44px; margin: 6px 0; font-size: 12.5px; }
 .toy .warn { color: var(--warn); font-size: 12.5px; margin: 4px 0 0; }
+
+.seg.tabs { display: flex; margin-bottom: 10px; }
+.seg.tabs button { flex: 1; padding: 6px 4px; font-size: 13px; }
+.logos { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 6px 0 10px; }
+.logos button { padding: 6px 2px; flex-direction: column; gap: 2px; font-size: 10.5px; color: var(--text); line-height: 1.1; text-align: center; }
+.logos button svg { display: block; }
+.logos button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }

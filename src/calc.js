@@ -162,19 +162,21 @@ export function analyze(s) {
 
   const rows = [];
   if (s.type === 'terr') {
-    const floorOk = il >= 3 * L && is >= 2 * L;
+    const floorOk = il >= 2 * L && is >= 1.5 * L;
     rows.push({
       ok: floorOk,
       text: floorOk
         ? `Floor space fits a ${fmtCm(L)} leg span (${f(il)} × ${f(is)} inside).`
-        : `Floor is tight for a ${fmtCm(L)} leg span. Aim for about ${f(3 * L)} × ${f(2 * L)} inside.`,
+        : `Floor is tight for a ${fmtCm(L)} leg span. Aim for about ${f(2 * L)} × ${f(1.5 * L)} inside.`,
     });
-    const heightOk = free <= 1.5 * L && free >= 0.75 * L;
+    // The tool never leaves less than about an inch of free height, so tiny spiders get a 1.1 in allowance.
+    const maxFree = Math.max(1.5 * L, 1.1);
+    const heightOk = free <= maxFree && free >= 0.75 * L;
     rows.push({
       ok: heightOk,
       text: heightOk
         ? `Free height above the substrate is ${f(free)}, a good range for a ground dweller.`
-        : free > 1.5 * L
+        : free > maxFree
           ? `Free height is ${f(free)}, quite tall for a ground dweller. Raise the substrate to about ${f(Math.max(0, hw - 1.5 * L))} or lower the box to reduce fall risk.`
           : `Free height is only ${f(free)}. Lower the substrate or raise the box.`,
     });
@@ -186,12 +188,12 @@ export function analyze(s) {
         ? `Floor space fits a ${fmtCm(L)} leg span (${f(il)} × ${f(is)} inside).`
         : `Floor is tight for a ${fmtCm(L)} leg span. Aim for at least ${f(2 * L)} on each side inside.`,
     });
-    const heightOk = free >= 3 * L;
+    const heightOk = free >= 2 * L;
     rows.push({
       ok: heightOk,
       text: heightOk
         ? `Free height is ${f(free)}, enough climbing room for a tree dweller.`
-        : `Free height is ${f(free)}. Tree dwellers do best with about ${f(3 * L)} or more.`,
+        : `Free height is ${f(free)}. Tree dwellers do best with about ${f(2 * L)} or more.`,
     });
   }
   rows.push({

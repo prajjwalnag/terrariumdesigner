@@ -48,9 +48,24 @@ function stlVolume(dv) {
   return v;
 }
 
-test('skull and crossbones are solid, outward-facing and sit on the plate', () => {
-  for (const k of ['skull', 'crossbones']) {
+test('every toy is solid and outward-facing', () => {
+  for (const k of Object.keys(KINDS)) {
+    const v = stlVolume(toyStl(k, 60));
+    assert.ok(v > 500, `${k} volume ${v}`);
+  }
+});
+
+test('every toy stands on the build plate and roughly matches its stated size', () => {
+  for (const [k, def] of Object.entries(KINDS)) {
     const dv = toyStl(k, 60);
-    assert.ok(stlVolume(dv) > 500, `${k} volume ${stlVolume(dv)}`);
+    const n = dv.getUint32(80, true);
+    let minZ = Infinity, maxZ = -Infinity;
+    for (let i = 0; i < n; i++) for (let j = 0; j < 3; j++) {
+      const z = dv.getFloat32(84 + i * 50 + 12 + j * 12 + 8, true);
+      minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+    }
+    assert.ok(Math.abs(minZ) < 0.5, `${k} base at ${minZ}`);
+    const want = def.dims(60).h;
+    assert.ok(Math.abs(maxZ - want) < 0.15 * want + 4, `${k} height ${maxZ.toFixed(1)} vs ${want.toFixed(1)}`);
   }
 });

@@ -4,8 +4,10 @@ import { createViewer } from './scene.js';
 import { fmtLen, fmtCm, CM_PER_IN, MM_PER_IN, escapeHtml } from './format.js';
 import { loadState, saveState, shareUrl, sanitize, defaults, LIMITS } from './state.js';
 import { buildPanels, packSheets, buildBom, panelSvg, panelCard, BEDS } from './panels.js';
-import { PRESETS } from './presets.js';
-import { KINDS, BEDS_3D, MAX_TOYS, toyDims, toyChecks, toyPlacement, toyStl } from './toys.js';
+import { SPECIES, GROUPS, STAGES, speciesById, legSpanCm } from './species.js';
+import { suggestBox } from './fit.js';
+import { LOGOS, rasterise, thumb } from './logos.js';
+import { KINDS, CATEGORIES, BEDS_3D, MAX_TOYS, toyDims, toyChecks, toyPlacement, toyStl } from './toys.js';
 
 const $ = (id) => document.getElementById(id);
 const all = (sel) => [...document.querySelectorAll(sel)];
@@ -66,6 +68,7 @@ function syncControls() {
   $('idp').value = (state.d * unitScale()).toFixed(digits);
   $('ih').value = (state.h * unitScale()).toFixed(digits);
   $('bed').value = BEDS[state.bed] ? state.bed : '600x300';
+  describeSpecies();
 }
 
 // ---------- render results ----------
@@ -155,14 +158,40 @@ $('sb').oninput = (e) => { state.sd = parseFloat(e.target.value); update(); };
 $('brk').oninput = (e) => { state.brk = parseFloat(e.target.value); update(); };
 $('lid').oninput = (e) => { state.lift = e.target.value / 100; viewer.applyLift(state); };
 
-// ---------- presets ----------
-$('preset').innerHTML = `<option value="">Choose…</option>${PRESETS.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}`;
-$('preset').onchange = (e) => {
-  const p = PRESETS.find((x) => x.id === e.target.value);
-  if (!p) return;
-  change({ type: p.type, ls: p.ls / CM_PER_IN, w: p.w, d: p.d, h: p.h, sd: p.sd, ventMm: null });
-  toast(`Loaded: ${p.name}`);
-};
+// ---------- species ----------
+$('species').innerHTML = `<option value="">Choose a spider…</option>${GROUPS.map((g) => `<optgroup label="${escapeHtml(g)}">${SPECIES.filter((x) => x.group === g).map((x) => `<option value="${x.id}">${escapeHtml(x.name)} (${escapeHtml(x.sci)})</option>`).join('')}</optgroup>`).join('')}`;
+
+function describeSpecies() {
+  const sp = speciesById(state.species);
+  $('species').value = sp ? sp.id : '';
+  all('[data-stage]').forEach((b) => { const on = b.dataset.stage === state.stage; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+  $('speciesinfo').textContent = sp
+    ? `${sp.sci} · ${sp.type === 'terr' ? 'ground dweller' : 'tree dweller'} · adults about ${sp.cm} cm.${sp.note ? ` ${sp.note}` : ''}`
+    : 'Pick a species to set the type, leg span and a box that fits.';
+}
+
+function fitBox(announce = true) {
+  const sp = speciesById(state.species);
+  const box = suggestBox(state, { burrow: !!(sp && sp.burrow) });
+  change({ w: box.w, d: box.d, h: box.h, sd: box.sd, decor: true });
+  if (announce) toast(box.fit ? 'Box sized to fit this spider.' : 'This spider needs more room than the 14 in limit. Showing the largest box.');
+}
+
+function applySpecies(id, stage = state.stage) {
+  const sp = speciesById(id);
+  state.stage = stage;
+  if (!sp) { state.species = ''; change({}); describeSpecies(); return; }
+  Object.assign(state, { species: id, type: sp.type, ls: legSpanCm(sp, stage) / CM_PER_IN, ventMm: null });
+  fitBox(false);
+  describeSpecies();
+  toast(`Loaded ${sp.name}, ${STAGES[stage].label.toLowerCase()} size.`);
+}
+$('species').onchange = (e) => applySpecies(e.target.value);
+all('[data-stage]').forEach((b) => b.addEventListener('click', () => {
+  if (speciesById(state.species)) applySpecies(state.species, b.dataset.stage);
+  else { state.stage = b.dataset.stage; describeSpecies(); saveState(state); }
+}));
+$('fitbox').onclick = () => fitBox();
 
 // ---------- logo ----------
 $('up').onclick = () => $('fi').click();
@@ -188,6 +217,17 @@ $('fi').onchange = (e) => {
   reader.readAsDataURL(file);
   e.target.value = '';
 };
+$('logos').innerHTML = LOGOS.map((l) => `<button type="button" class="btn" data-logo="${l.id}" aria-label="${escapeHtml(l.name)} logo" title="${escapeHtml(l.name)}">${thumb(l.svg)}<span>${escapeHtml(l.name)}</span></button>`).join('');
+$('logos').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-logo]');
+  const l = b && LOGOS.find((x) => x.id === b.dataset.logo);
+  if (!l) return;
+  try {
+    const data = await rasterise(l.svg);
+    viewer.setLogo(data);
+    change({ logoData: data, logo: true });
+  } catch { toast('Could not load that logo.'); }
+});
 $('upclr').onclick = () => { viewer.setLogo(null); change({ logoData: null }); };
 
 // ---------- viewer tools ----------
@@ -275,7 +315,6 @@ $('reset').onclick = () => {
   const d = defaults();
   d.auto = state.auto;
   viewer.setLogo(null);
-  $('preset').value = '';
   change(d);
 };
 
@@ -292,8 +331,14 @@ update();
 viewer.setAuto(state.auto);
 
 // ---------- toys ----------
-$('toykinds').innerHTML = Object.entries(KINDS)
-  .map(([k, v]) => `<button type="button" class="btn" data-toy="${k}"><b>+ ${escapeHtml(v.name)}</b><span>${escapeHtml(v.blurb)}</span></button>`).join('');
+let toyCat = 'hide';
+function renderToyKinds() {
+  $('toytabs').innerHTML = Object.entries(CATEGORIES).map(([k, l]) => `<button type="button" data-cat="${k}" class="${k === toyCat ? 'on' : ''}" aria-pressed="${k === toyCat}">${escapeHtml(l)}</button>`).join('');
+  $('toykinds').innerHTML = Object.entries(KINDS).filter(([, v]) => v.cat === toyCat)
+    .map(([k, v]) => `<button type="button" class="btn" data-toy="${k}" ${state.toys.length >= MAX_TOYS ? 'disabled' : ''}><b>+ ${escapeHtml(v.name)}</b><span>${escapeHtml(v.blurb)}</span></button>`).join('');
+}
+$('toytabs').addEventListener('click', (e) => { const b = e.target.closest('[data-cat]'); if (b) { toyCat = b.dataset.cat; renderToyKinds(); } });
+renderToyKinds();
 $('pbed').innerHTML = Object.entries(BEDS_3D).map(([k, l]) => `<option value="${k}">${escapeHtml(l)}</option>`).join('');
 $('pbed').value = state.pbed;
 $('pbed').onchange = (e) => { state.pbed = e.target.value; renderToys(); saveState(state); };

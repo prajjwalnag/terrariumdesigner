@@ -37,10 +37,11 @@
   <p class="lead">Pick your spider, size the box and watch it update in 3D. We check the floor space, climbing height and camera view, then export laser-cut acrylic panels you can send straight to a cutter.</p>
   <ul class="chips" aria-label="What you get">
     <li>Live 3D preview</li>
+    <li>33 species</li>
     <li>Fit checks per spider type</li>
     <li>Camera field of view</li>
     <li>SVG for laser cutting</li>
-    <li>3D-printable toys</li>
+    <li>19 printable toys</li>
     <li>Shopping list</li>
   </ul>
   <a class="btn primary" href="#designer">Start designing</a>
@@ -50,11 +51,16 @@
   <aside class="controls" aria-label="Design controls">
     <section class="card">
       <h2>Start from a spider</h2>
-      <label class="field">
-        <span class="lbl">Preset</span>
-        <select id="preset"></select>
-      </label>
-      <p class="hint">Presets set the type, leg span, box and substrate. You can change everything afterwards.</p>
+      <label class="field"><span class="lbl">Species</span><select id="species"></select></label>
+      <div class="row"><span class="lbl">Size</span>
+        <div class="seg" role="group" aria-label="Growth stage">
+          <button type="button" data-stage="sling">Sling</button>
+          <button type="button" data-stage="juv">Juvenile</button>
+          <button type="button" data-stage="adult">Adult</button>
+        </div>
+      </div>
+      <p id="speciesinfo" class="hint" aria-live="polite">Pick a species to set the type, leg span and a box that fits.</p>
+      <div class="row"><button id="fitbox" class="btn" type="button">Fit box to this spider</button></div>
     </section>
 
     <section class="card">
@@ -93,7 +99,7 @@
           <button type="button" data-set="type:arb">Arboreal</button>
         </div>
       </div>
-      <label class="slider">Leg span <input type="range" id="ls" min="1" max="20" step="0.5"><output id="lsv"></output></label>
+      <label class="slider">Leg span <input type="range" id="ls" min="1" max="30" step="0.5"><output id="lsv"></output></label>
       <label class="slider">Substrate <input type="range" id="sb" min="0.5" max="4" step="0.25"><output id="sbv"></output></label>
       <label class="chk"><input type="checkbox" data-bind="decor"> Terrarium set-up</label>
       <label class="chk"><input type="checkbox" data-bind="spider"> Show spider</label>
@@ -114,6 +120,7 @@
 
     <section class="card">
       <h2>Toys to 3D print</h2>
+      <div class="seg tabs" id="toytabs" role="group" aria-label="Toy type"></div>
       <div id="toykinds" class="toykinds"></div>
       <div id="toylist" class="toylist"></div>
       <label class="field"><span class="lbl">Print bed</span><select id="pbed"></select></label>
@@ -126,6 +133,7 @@
       <label class="slider">Bracket size <input type="range" id="brk" min="0.35" max="1" step="0.05"><output id="bv"></output></label>
       <label class="chk"><input type="checkbox" data-bind="vents"> Vent holes</label>
       <label class="chk"><input type="checkbox" data-bind="logo"> Logo</label>
+      <div id="logos" class="logos" role="group" aria-label="Logo library"></div>
       <div class="row">
         <button id="up" class="btn" type="button">Upload logo</button>
         <button id="upclr" class="btn" type="button">Clear logo</button>
@@ -243,7 +251,7 @@
 <section class="band alt" id="about">
   <div class="inner about">
     <h2 class="big">About the checks</h2>
-    <p>The fit checks are rules of thumb: a ground dweller wants floor space of about three by two leg spans and a free height of up to one and a half leg spans, while a tree dweller wants at least three leg spans of height. Vent holes are sized to be smaller than the spider can squeeze through. The camera view is based on a typical ESP32-CAM lens (about 52° × 40°).</p>
+    <p>The fit checks are rules of thumb: a ground dweller wants floor space of about two by one and a half leg spans and a free height of up to one and a half leg spans, while a tree dweller wants at least two leg spans of height and floor space of two leg spans each way. Vent holes are sized to be smaller than the spider can squeeze through. The camera view is based on a typical ESP32-CAM lens (about 52° × 40°).</p>
     <p><strong>Please note:</strong> this tool checks geometry only. Humidity, ventilation, escape-proofing, heating and species needs vary. Research your species and ask experienced keepers before building. Cast acrylic and solvent cement need good ventilation; never laser-cut PVC.</p>
   </div>
 </section>

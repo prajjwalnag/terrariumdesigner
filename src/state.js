@@ -1,4 +1,5 @@
 import { CM_PER_IN } from './format.js';
+import { KINDS } from './toys.js';
 
 export const LIMITS = { min: 2, max: 14, minH: 2.5 };
 export const THIN = 0.118; // 3 mm acrylic, in inches
@@ -27,6 +28,8 @@ export const defaults = () => ({
   bed: '600x300',
   toys: [],
   pbed: '220',
+  species: '',
+  stage: 'adult',
 });
 
 const inRange = (v, lo, hi) => Number.isFinite(v) && v >= lo && v <= hi;
@@ -44,7 +47,7 @@ function applyQuery(s, search) {
   if (w != null) s.w = w;
   if (d != null) s.d = d;
   if (h != null) s.h = h;
-  const ls = num('ls', 1, 20); // cm
+  const ls = num('ls', 1, 30); // cm
   if (ls != null) s.ls = ls / CM_PER_IN;
   const sd = num('sd', 0.5, 4);
   if (sd != null) s.sd = sd;
@@ -106,13 +109,15 @@ export function sanitize(obj) {
   for (const [k, def] of Object.entries(base)) {
     const v = obj[k];
     if (v === undefined || k === 'lift') continue;
+    if (k === 'species') { if (typeof v === 'string' && /^[a-z0-9-]{0,24}$/.test(v)) out.species = v; continue; }
+    if (k === 'stage') { if (['sling', 'juv', 'adult'].includes(v)) out.stage = v; continue; }
     if (k === 'toys') { out.toys = sanitizeToys(v); continue; }
     if (k === 'pbed') { if (['120', '180', '220', '256'].includes(String(v))) out.pbed = String(v); continue; }
     if (k === 'logoData') { out[k] = typeof v === 'string' && LOGO_RE.test(v) ? v : null; continue; }
     if (k === 'ventMm') { if (v === null || inRange(v, 0.5, 6)) out[k] = v; continue; }
     if (typeof v !== typeof def) continue;
     if (typeof def === 'number') {
-      const [lo, hi] = { w: [LIMITS.min, LIMITS.max], d: [LIMITS.min, LIMITS.max], h: [LIMITS.minH, LIMITS.max], ls: [0.4, 8], sd: [0.5, 4], brk: [0.35, 1], t: [0.1, 0.2] }[k] || [-Infinity, Infinity];
+      const [lo, hi] = { w: [LIMITS.min, LIMITS.max], d: [LIMITS.min, LIMITS.max], h: [LIMITS.minH, LIMITS.max], ls: [0.4, 12], sd: [0.5, 4], brk: [0.35, 1], t: [0.1, 0.2] }[k] || [-Infinity, Infinity];
       if (inRange(v, lo, hi)) out[k] = v;
     } else if (k === 'unit') { if (['in', 'cm'].includes(v)) out[k] = v; }
     else if (k === 'type') { if (['terr', 'arb'].includes(v)) out[k] = v; }
@@ -123,7 +128,7 @@ export function sanitize(obj) {
   return out;
 }
 
-const TOY_KINDS = ['tunnel', 'pyramid', 'ramp', 'post', 'mound', 'platform', 'skull', 'crossbones'];
+const TOY_KINDS = Object.keys(KINDS);
 function sanitizeToys(list) {
   if (!Array.isArray(list)) return [];
   const num = (v, lo, hi, d) => (inRange(v, lo, hi) ? v : d);

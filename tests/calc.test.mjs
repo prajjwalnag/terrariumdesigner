@@ -2,19 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { analyze, suggestedVentMm } from '../src/calc.js';
 import { defaults } from '../src/state.js';
-import { PRESETS } from '../src/presets.js';
 import { buildPanels, packSheets, BEDS } from '../src/panels.js';
-
-const apply = (p) => ({ ...defaults(), type: p.type, ls: p.ls / 2.54, w: p.w, d: p.d, h: p.h, sd: p.sd });
-
-test('every preset passes its own species fit checks', () => {
-  for (const p of PRESETS) {
-    const g = analyze(apply(p));
-    const [floor, height] = g.rows;
-    assert.ok(floor.ok, `${p.id} floor: ${floor.text}`);
-    assert.ok(height.ok, `${p.id} height: ${height.text}`);
-  }
-});
 
 test('vent size scales with leg span', () => {
   assert.equal(suggestedVentMm(1), 1);
@@ -22,15 +10,16 @@ test('vent size scales with leg span', () => {
   assert.equal(suggestedVentMm(5), 3);
 });
 
-test('panels pack onto the chosen bed without overlapping', () => {
+const SIZES = [{ w: 3, d: 3, h: 5, sd: 1 }, { w: 10, d: 7, h: 4.5, sd: 2 }, { w: 7, d: 7, h: 11.5, sd: 1.5 }];
+test('panels pack onto the chosen bed without losing any', () => {
   for (const key of Object.keys(BEDS)) {
-    for (const p of PRESETS) {
-      const s = apply(p);
+    for (const z of SIZES) {
+      const s = { ...defaults(), ...z };
       const panels = buildPanels(s, analyze(s));
       assert.equal(panels.length, 6);
       const { sheets, oversize } = packSheets(panels, BEDS[key]);
       const placed = sheets.reduce((n, sh) => n + sh.panels.length, 0);
-      assert.equal(placed + oversize.length, 6, `${p.id} on ${key}`);
+      assert.equal(placed + oversize.length, 6, `${JSON.stringify(z)} on ${key}`);
     }
   }
 });
