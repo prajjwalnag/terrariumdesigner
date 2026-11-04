@@ -25,6 +25,8 @@ export const defaults = () => ({
   ventMm: null,
   logoData: null,
   bed: '600x300',
+  toys: [],
+  pbed: '220',
 });
 
 const inRange = (v, lo, hi) => Number.isFinite(v) && v >= lo && v <= hi;
@@ -69,6 +71,7 @@ export function loadState() {
     if (saved) Object.assign(s, JSON.parse(saved));
   } catch { /* storage unavailable */ }
   applyQuery(s, location.search);
+  s.toys = sanitizeToys(s.toys);
   s.lift = 0;
   return s;
 }
@@ -103,6 +106,8 @@ export function sanitize(obj) {
   for (const [k, def] of Object.entries(base)) {
     const v = obj[k];
     if (v === undefined || k === 'lift') continue;
+    if (k === 'toys') { out.toys = sanitizeToys(v); continue; }
+    if (k === 'pbed') { if (['120', '180', '220', '256'].includes(String(v))) out.pbed = String(v); continue; }
     if (k === 'logoData') { out[k] = typeof v === 'string' && LOGO_RE.test(v) ? v : null; continue; }
     if (k === 'ventMm') { if (v === null || inRange(v, 0.5, 6)) out[k] = v; continue; }
     if (typeof v !== typeof def) continue;
@@ -116,4 +121,14 @@ export function sanitize(obj) {
     else out[k] = v;
   }
   return out;
+}
+
+const TOY_KINDS = ['tunnel', 'pyramid', 'ramp', 'post', 'mound', 'platform'];
+function sanitizeToys(list) {
+  if (!Array.isArray(list)) return [];
+  const num = (v, lo, hi, d) => (inRange(v, lo, hi) ? v : d);
+  return list.slice(0, 8).filter((t) => t && TOY_KINDS.includes(t.kind)).map((t) => ({
+    id: String(t.id ?? Math.random().toString(36).slice(2)).slice(0, 24).replace(/[^\w-]/g, ''),
+    kind: t.kind, x: num(t.x, -1, 1, 0), z: num(t.z, -1, 1, 0), rot: num(t.rot, -360, 360, 0), scale: num(t.scale, 0.5, 2, 1),
+  }));
 }

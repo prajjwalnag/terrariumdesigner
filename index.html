@@ -40,6 +40,7 @@
     <li>Fit checks per spider type</li>
     <li>Camera field of view</li>
     <li>SVG for laser cutting</li>
+    <li>3D-printable toys</li>
     <li>Shopping list</li>
   </ul>
   <a class="btn primary" href="#designer">Start designing</a>
@@ -109,6 +110,15 @@
         </div>
       </div>
       <label class="chk"><input type="checkbox" data-bind="camview"> Show camera view</label>
+    </section>
+
+    <section class="card">
+      <h2>Toys to 3D print</h2>
+      <div id="toykinds" class="toykinds"></div>
+      <div id="toylist" class="toylist"></div>
+      <label class="field"><span class="lbl">Print bed</span><select id="pbed"></select></label>
+      <div class="row"><button id="toyall" class="btn" type="button">Download all STL</button></div>
+      <p id="toyinfo" class="hint">Add up to 8 toys. They are sized to your spider and downloaded as STL files, flat side down.</p>
     </section>
 
     <section class="card">

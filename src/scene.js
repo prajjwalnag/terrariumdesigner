@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { ventLayout, ventBlockedByCamera } from './calc.js';
+import { buildToy, toyPlacement, toySizeMm } from './toys.js';
+import { MM_PER_IN } from './format.js';
 
 const mat = (color, o = {}) => new THREE.MeshStandardMaterial({ color, ...o });
 const M = {
@@ -17,6 +19,7 @@ const M = {
   metal: mat(0xb8bcc2, { roughness: 0.3, metalness: 0.8 }),
   black: mat(0x222222, { roughness: 0.5 }),
   lens: new THREE.MeshBasicMaterial({ color: 0x3a5fa8 }),
+  toy: mat(0x6fb39a, { roughness: 0.55 }),
   frustum: new THREE.LineBasicMaterial({ color: 0x1d9e75, transparent: true, opacity: 0.9 }),
 };
 
@@ -295,6 +298,16 @@ export function createViewer(canvas) {
         root.add(blade);
       });
     }
+
+    // Printed toys
+    (s.toys || []).forEach((toy) => {
+      const p = toyPlacement(toy, g);
+      const grp = buildToy(toy.kind, toySizeMm(toy, g.L), M.toy);
+      grp.scale.setScalar(1 / MM_PER_IN);
+      grp.rotation.y = (toy.rot * Math.PI) / 180;
+      grp.position.set(p.x, g.fy - 0.01, p.z);
+      root.add(grp);
+    });
 
     // Spider
     if (s.spider) {

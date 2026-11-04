@@ -73,7 +73,7 @@ input[type='checkbox'] { accent-color: var(--accent); width: 17px; height: 17px;
 /* layout */
 .designer { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 20px; max-width: 1280px; margin: 0 auto; padding: 8px 16px 40px; align-items: start; }
 .controls { display: flex; flex-direction: column; gap: 12px; }
-.workspace { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.workspace { display: flex; flex-direction: column; gap: 12px; min-width: 0; align-self: stretch; }
 .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); }
 .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 650; margin-bottom: 10px; }
 .card h3 { font-size: 14px; font-weight: 650; margin: 14px 0 8px; }
@@ -171,3 +171,17 @@ section.inner { padding: 44px 16px; }
   .toolbar { flex-wrap: wrap; }
   .hero { padding-top: 32px; }
 }
+
+/* toys */
+.toykinds { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.toykinds .btn { flex-direction: column; align-items: flex-start; text-align: left; padding: 8px 10px; gap: 1px; }
+.toykinds .btn b { font-size: 13.5px; }
+.toykinds .btn span { color: var(--muted); font-size: 12px; }
+.toylist { display: flex; flex-direction: column; gap: 10px; margin: 12px 0 8px; }
+.toy { background: var(--card2); border-radius: 11px; padding: 10px 12px; }
+.toy-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-weight: 600; font-size: 14px; }
+.toy-head small { color: var(--muted); font-weight: 400; font-size: 12px; display: block; }
+.toy-btns { display: flex; gap: 4px; }
+.toy-btns .btn { padding: 4px 9px; font-size: 12.5px; }
+.toy .slider { grid-template-columns: 76px 1fr 44px; margin: 6px 0; font-size: 12.5px; }
+.toy .warn { color: var(--warn); font-size: 12.5px; margin: 4px 0 0; }

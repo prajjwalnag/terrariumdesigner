@@ -5,6 +5,7 @@ import { fmtLen, fmtCm, CM_PER_IN, MM_PER_IN, escapeHtml } from './format.js';
 import { loadState, saveState, shareUrl, sanitize, defaults, LIMITS } from './state.js';
 import { buildPanels, packSheets, buildBom, panelSvg, panelCard, BEDS } from './panels.js';
 import { PRESETS } from './presets.js';
+import { KINDS, BEDS_3D, MAX_TOYS, toyDims, toyChecks, toyPlacement, toyStl } from './toys.js';
 
 const $ = (id) => document.getElementById(id);
 const all = (sel) => [...document.querySelectorAll(sel)];
@@ -99,6 +100,7 @@ function renderResults() {
 
 function update() {
   geo = analyze(state);
+  geo.rows.push(...toyChecks(state, geo));
   viewer.rebuild(state, geo);
   renderResults();
   saveState(state);
@@ -108,6 +110,7 @@ function change(patch) {
   Object.assign(state, patch);
   syncControls();
   update();
+  if (typeof renderToys === 'function') renderToys();
 }
 
 // ---------- box size ----------
@@ -147,6 +150,7 @@ all('[data-bind]').forEach((el) => el.addEventListener('change', () => {
   change({ [k]: el.checked });
 }));
 $('ls').oninput = (e) => { state.ls = parseFloat(e.target.value) / CM_PER_IN; update(); };
+$('ls').onchange = () => renderToys();
 $('sb').oninput = (e) => { state.sd = parseFloat(e.target.value); update(); };
 $('brk').oninput = (e) => { state.brk = parseFloat(e.target.value); update(); };
 $('lid').oninput = (e) => { state.lift = e.target.value / 100; viewer.applyLift(state); };
@@ -286,3 +290,69 @@ $('theme').onclick = () => {
 syncControls();
 update();
 viewer.setAuto(state.auto);
+
+// ---------- toys ----------
+$('toykinds').innerHTML = Object.entries(KINDS)
+  .map(([k, v]) => `<button type="button" class="btn" data-toy="${k}"><b>+ ${escapeHtml(v.name)}</b><span>${escapeHtml(v.blurb)}</span></button>`).join('');
+$('pbed').innerHTML = Object.entries(BEDS_3D).map(([k, l]) => `<option value="${k}">${escapeHtml(l)}</option>`).join('');
+$('pbed').value = state.pbed;
+$('pbed').onchange = (e) => { state.pbed = e.target.value; renderToys(); saveState(state); };
+
+const SLIDERS = [['x', 'Left–right', -100, 100, 100], ['z', 'Front–back', -100, 100, 100], ['rot', 'Rotate', -180, 180, 1], ['scale', 'Size', 50, 200, 100]];
+function renderToys() {
+  const bed = Number(state.pbed);
+  $('toylist').innerHTML = state.toys.map((t) => {
+    const d = toyDims(t, geo.L);
+    const big = Math.max(d.w, d.l) > bed || false;
+    const rows = SLIDERS.map(([k, lbl, lo, hi, div]) => `<label class="slider">${lbl}<input type="range" data-toyid="${t.id}" data-k="${k}" min="${lo}" max="${hi}" step="1" value="${Math.round(t[k] * div)}"><output></output></label>`).join('');
+    return `<div class="toy" data-id="${t.id}"><div class="toy-head"><span>${escapeHtml(KINDS[t.kind].name)}<small>${d.w.toFixed(0)} × ${d.l.toFixed(0)} × ${d.h.toFixed(0)} mm</small></span>
+      <span class="toy-btns"><button type="button" class="btn" data-act="stl" data-toyid="${t.id}">STL</button><button type="button" class="btn" data-act="del" data-toyid="${t.id}" aria-label="Remove ${escapeHtml(KINDS[t.kind].name)}">✕</button></span></div>${rows}
+      ${big ? `<p class="warn">Wider than your ${bed} mm print bed. Reduce the size.</p>` : ''}</div>`;
+  }).join('');
+  all('#toylist input[type=range]').forEach(syncToyOut);
+  $('toykinds').querySelectorAll('button').forEach((b) => { b.disabled = state.toys.length >= MAX_TOYS; });
+}
+function syncToyOut(el) {
+  const t = state.toys.find((x) => x.id === el.dataset.toyid);
+  if (!t) return;
+  const k = el.dataset.k;
+  el.nextElementSibling.textContent = k === 'rot' ? `${Math.round(t.rot)}°` : k === 'scale' ? `${Math.round(t.scale * 100)}%` : `${Math.round(t[k] * 100)}`;
+}
+const saveStl = (t) => {
+  const s = toyDims(t, geo.L).s;
+  download(`toy-${t.kind}-${Math.round(s)}mm.stl`, toyStl(t.kind, s), 'model/stl');
+};
+$('toykinds').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-toy]');
+  if (!b || state.toys.length >= MAX_TOYS) return;
+  const n = state.toys.length;
+  state.toys.push({ id: Math.random().toString(36).slice(2, 10), kind: b.dataset.toy, x: [0.6, -0.6, 0, 0.6][n % 4], z: [-0.6, 0.6, 0.6, 0.6][n % 4], rot: 0, scale: 1 });
+  update(); renderToys();
+});
+$('toylist').addEventListener('input', (e) => {
+  const el = e.target.closest('input[data-toyid]');
+  const t = el && state.toys.find((x) => x.id === el.dataset.toyid);
+  if (!t) return;
+  const [, , , , div] = SLIDERS.find(([k]) => k === el.dataset.k);
+  t[el.dataset.k] = el.dataset.k === 'rot' ? Number(el.value) : Number(el.value) / div;
+  syncToyOut(el);
+  update();
+});
+$('toylist').addEventListener('change', (e) => {
+  // Refresh sizes and bed warnings once a drag ends, keeping keyboard focus on the same slider.
+  const id = e.target.dataset && e.target.dataset.toyid;
+  const k = e.target.dataset && e.target.dataset.k;
+  renderToys();
+  if (id && k) { const el = $('toylist').querySelector(`input[data-toyid="${id}"][data-k="${k}"]`); if (el) el.focus(); }
+});
+$('toylist').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-act]');
+  const t = b && state.toys.find((x) => x.id === b.dataset.toyid);
+  if (!t) return;
+  if (b.dataset.act === 'del') { state.toys = state.toys.filter((x) => x !== t); update(); renderToys(); } else saveStl(t);
+});
+$('toyall').onclick = () => {
+  if (!state.toys.length) return toast('Add a toy first.');
+  state.toys.forEach((t, i) => setTimeout(() => saveStl(t), i * 300));
+};
+renderToys();
