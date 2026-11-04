@@ -4,7 +4,7 @@ import { createViewer } from './scene.js';
 import { fmtLen, fmtCm, CM_PER_IN, MM_PER_IN, escapeHtml } from './format.js';
 import { loadState, saveState, shareUrl, sanitize, defaults, LIMITS } from './state.js';
 import { buildPanels, packSheets, buildBom, panelSvg, panelCard, BEDS } from './panels.js';
-import { SPECIES, GROUPS, STAGES, speciesById, legSpanCm } from './species.js';
+import { SPECIES, GROUPS, STAGES, speciesById, legSpanCm, speciesInfo } from './species.js';
 import { suggestBox } from './fit.js';
 import { LOGOS, rasterise, thumb } from './logos.js';
 import sketch from './esp32cam.ino?raw';
@@ -163,7 +163,29 @@ $('lid').oninput = (e) => { state.lift = e.target.value / 100; viewer.applyLift(
 // ---------- species ----------
 $('species').innerHTML = `<option value="">Choose a spider…</option>${GROUPS.map((g) => `<optgroup label="${escapeHtml(g)}">${SPECIES.filter((x) => x.group === g).map((x) => `<option value="${x.id}">${escapeHtml(x.name)} (${escapeHtml(x.sci)})</option>`).join('')}</optgroup>`).join('')}`;
 
+function renderSpeciesCard() {
+  const el = $('speciescard');
+  const i = speciesInfo(state.species);
+  el.hidden = !i;
+  if (!i) return;
+  const fact = (k, v, wide) => `<div${wide ? ' class="wide"' : ''}><dt>${k}</dt><dd>${escapeHtml(v)}</dd></div>`;
+  el.innerHTML = `<h2>${escapeHtml(i.name)}</h2><p class="sci">${escapeHtml(i.sci)}</p>
+    <div class="tags"><span class="tag">${i.type === 'terr' ? 'Ground dweller' : 'Tree dweller'}</span><span class="tag">${escapeHtml(i.group)}</span><span class="tag l${i.level}">${escapeHtml(i.temper)}</span></div>
+    <dl class="facts">
+      ${fact('Adult leg span', `about ${i.cm} cm · your design uses ${fmtCm(state.ls)}`)}
+      ${fact('Typical lifespan (female)', i.life)}
+      ${fact('Origin', i.origin)}
+      ${fact('Temperature', i.temp)}
+      ${fact('Humidity', i.rh)}
+      ${fact('Set-up', i.setup)}
+      ${fact('Feeding', i.diet, true)}
+    </dl>
+    ${i.level === 2 || i.note ? `<p class="caution">${escapeHtml(i.note || 'Fast and defensive. Plan a secure lid and avoid handling.')}</p>` : ''}
+    <p class="fine">General guidance with rounded, approximate ranges that I have not checked against sources. Always research your species and ask experienced keepers.</p>`;
+}
+
 function describeSpecies() {
+  renderSpeciesCard();
   const sp = speciesById(state.species);
   $('species').value = sp ? sp.id : '';
   all('[data-stage]').forEach((b) => { const on = b.dataset.stage === state.stage; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });

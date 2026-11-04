@@ -33,3 +33,14 @@ test('every species at every stage gets a box that passes its checks (unless too
   assert.ok(tooBig.every((x) => /\/adult$/.test(x) || /\/juv$/.test(x)), tooBig.join(','));
   console.log('too big for the tool:', tooBig.join(', ') || 'none');
 });
+
+import { speciesInfo } from '../src/species.js';
+test('every species has complete info', () => {
+  for (const sp of SPECIES) {
+    const i = speciesInfo(sp.id);
+    assert.ok(i, sp.id);
+    for (const k of ['origin', 'temper', 'life', 'temp', 'rh', 'diet', 'setup']) assert.ok(i[k], `${sp.id} ${k}`);
+    assert.ok([0, 1, 2].includes(i.level), sp.id);
+  }
+  assert.equal(speciesInfo('nope'), null);
+});
