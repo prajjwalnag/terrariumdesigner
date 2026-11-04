@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { STLExporter } from 'three/addons/exporters/STLExporter.js';
+import { Brush, Evaluator, SUBTRACTION, ADDITION } from 'three-bvh-csg';
 import { MM_PER_IN, fmtLen } from './format.js';
 
 export const MAX_TOYS = 8;
@@ -16,6 +17,8 @@ export const KINDS = {
   ramp:     { name: 'Ramp',          blurb: 'Rung ramp up to a ledge',   dims: (s) => ({ w: 0.5 * s, l: 1.6 * s, h: 0.7 * s }) },
   post:     { name: 'Climbing post', blurb: 'Post with pegs',            dims: (s) => ({ w: s, l: s, h: 1.8 * s }) },
   mound:    { name: 'Mound',         blurb: 'Smooth dome to sit on',     dims: (s) => ({ w: s, l: s, h: 0.4 * s }) },
+  skull:    { name: 'Skull hide',    blurb: 'Hollow skull, enter by the mouth', dims: (s) => ({ w: s, l: 1.1 * s, h: 1.05 * s }) },
+  crossbones: { name: 'Crossbones', blurb: 'Crossed bones to climb',  dims: (s) => ({ w: 1.4 * s, l: 1.4 * s, h: 0.25 * s }) },
   platform: { name: 'Platform',      blurb: 'Raised ledge on legs',      dims: (s) => ({ w: 0.9 * s, l: 0.9 * s, h: 0.8 * s }) },
 };
 
@@ -33,6 +36,52 @@ function addCyl(g, mat, rt, rb, h, x, y, z, seg = 20) {
   m.position.set(x, y + h / 2, z);
   g.add(m);
   return m;
+}
+
+const skullCache = new Map();
+/** Hollow skull: ellipsoid cranium plus jaw, with the inside, eyes, nose and mouth cut out. Faces +z. */
+function skullGeometry(s) {
+  const key = Math.round(s * 2);
+  if (skullCache.has(key)) return skullCache.get(key).clone();
+  const wall = wallFor(s);
+  const ev = new Evaluator();
+  ev.attributes = ['position', 'normal'];
+  ev.useGroups = false;
+  const brush = (geo, x, y, z, sx = 1, sy = 1, sz = 1) => {
+    geo.deleteAttribute('uv');
+    const b = new Brush(geo);
+    b.position.set(x, y, z);
+    b.scale.set(sx, sy, sz);
+    b.updateMatrixWorld();
+    return b;
+  };
+  const sph = (r) => new THREE.SphereGeometry(r, 40, 28);
+  const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+  const cyl = (r, len) => { const g = new THREE.CylinderGeometry(r, r, len, 28); g.rotateX(Math.PI / 2); return g; };
+  // evaluate() returns geometry in the first brush's local space, so bake its transform in.
+  const run = (a, b, op) => {
+    const m = ev.evaluate(a, b, op);
+    m.updateMatrixWorld();
+    const g = m.geometry.clone();
+    g.applyMatrix4(m.matrixWorld);
+    const nb = new Brush(g);
+    nb.updateMatrixWorld();
+    return nb;
+  };
+  const cy = 0.55 * s;
+  const outer = run(brush(sph(1), 0, cy, 0, 0.5 * s, 0.5 * s, 0.55 * s), brush(box(0.62 * s, 0.34 * s, 0.7 * s), 0, 0.17 * s, 0.2 * s), ADDITION);
+  const cavity = run(
+    brush(sph(1), 0, cy, 0, 0.5 * s - wall, 0.5 * s - wall, 0.55 * s - wall),
+    brush(box(0.62 * s - 2 * wall, 0.34 * s + 2, 0.7 * s - 2 * wall), 0, 0.17 * s - 1, 0.2 * s),
+    ADDITION,
+  );
+  let r = run(outer, cavity, SUBTRACTION);
+  [-1, 1].forEach((side) => { r = run(r, brush(cyl(0.15 * s, s), side * 0.2 * s, 0.66 * s, 0.5 * s), SUBTRACTION); }); // eyes
+  r = run(r, brush(cyl(0.06 * s, s), 0, 0.46 * s, 0.5 * s), SUBTRACTION); // nose
+  r = run(r, brush(box(0.44 * s, 0.26 * s + 2, 0.6 * s), 0, 0.13 * s - 1, 0.4 * s), SUBTRACTION); // mouth
+  const geo = r.geometry;
+  skullCache.set(key, geo);
+  return geo.clone();
 }
 
 export function buildToy(kind, s, mat) {
@@ -91,6 +140,25 @@ export function buildToy(kind, s, mat) {
     const base = new THREE.Mesh(new THREE.CircleGeometry(R, 40), mat);
     base.rotation.x = Math.PI / 2;
     g.add(base);
+  } else if (kind === 'skull') {
+    g.add(new THREE.Mesh(skullGeometry(s), mat));
+  } else if (kind === 'crossbones') {
+    const lenB = 1.3 * s, rb = 0.06 * s, kn = 0.1 * s;
+    addCyl(g, mat, 0.7 * s, 0.7 * s, 3, 0, 0, 0, 48);
+    [Math.PI / 5, -Math.PI / 5].forEach((a) => {
+      const bone = new THREE.Group();
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(rb, rb, lenB, 16), mat);
+      shaft.rotation.z = Math.PI / 2;
+      bone.add(shaft);
+      [-1, 1].forEach((e) => [-1, 1].forEach((f) => {
+        const ball = new THREE.Mesh(new THREE.SphereGeometry(kn, 14, 10), mat);
+        ball.position.set(e * lenB / 2, 0, f * kn * 0.8);
+        bone.add(ball);
+      }));
+      bone.rotation.y = a;
+      bone.position.y = 3 + kn;
+      g.add(bone);
+    });
   } else if (kind === 'platform') {
     const w = 0.9 * s, h = 0.8 * s, top = Math.max(3, 0.05 * s), lr = 0.06 * s;
     addBox(g, mat, w, top, w, 0, h - top, 0);

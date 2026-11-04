@@ -123,7 +123,7 @@ export function sanitize(obj) {
   return out;
 }
 
-const TOY_KINDS = ['tunnel', 'pyramid', 'ramp', 'post', 'mound', 'platform'];
+const TOY_KINDS = ['tunnel', 'pyramid', 'ramp', 'post', 'mound', 'platform', 'skull', 'crossbones'];
 function sanitizeToys(list) {
   if (!Array.isArray(list)) return [];
   const num = (v, lo, hi, d) => (inRange(v, lo, hi) ? v : d);

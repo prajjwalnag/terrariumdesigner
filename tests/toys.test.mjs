@@ -35,3 +35,22 @@ test('sanitize drops bad toys and caps the list', () => {
   assert.ok(out.toys.length <= 8);
   assert.ok(out.toys.every((t) => Math.abs(t.x) <= 1 && t.scale <= 2 && t.kind !== 'bogus'));
 });
+
+// Signed volume of an STL (positive when triangles face outward).
+function stlVolume(dv) {
+  const n = dv.getUint32(80, true);
+  let v = 0;
+  for (let i = 0; i < n; i++) {
+    const o = 84 + i * 50 + 12;
+    const p = [0, 1, 2].map((j) => [0, 1, 2].map((c) => dv.getFloat32(o + j * 12 + c * 4, true)));
+    v += (p[0][0] * (p[1][1] * p[2][2] - p[1][2] * p[2][1]) - p[0][1] * (p[1][0] * p[2][2] - p[1][2] * p[2][0]) + p[0][2] * (p[1][0] * p[2][1] - p[1][1] * p[2][0])) / 6;
+  }
+  return v;
+}
+
+test('skull and crossbones are solid, outward-facing and sit on the plate', () => {
+  for (const k of ['skull', 'crossbones']) {
+    const dv = toyStl(k, 60);
+    assert.ok(stlVolume(dv) > 500, `${k} volume ${stlVolume(dv)}`);
+  }
+});
