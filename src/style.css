@@ -251,3 +251,9 @@ input[type='search'] { width: 100%; font: inherit; color: var(--text); backgroun
 
 .site-footer .credit { margin-top: 6px; }
 .site-footer a { font-weight: 600; }
+
+/* background music */
+.music { display: flex; align-items: center; gap: 8px; margin-left: 4px; }
+.music input[type='range'] { width: 84px; }
+#music[aria-pressed='true'] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+@media (max-width: 640px) { .music input[type='range'] { width: 56px; } }

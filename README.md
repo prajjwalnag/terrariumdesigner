@@ -29,6 +29,7 @@ Any static host also works: upload the contents of `dist/`, or just the single f
 - `src/printcheck.js` mesh and overhang checks
 - `src/panels.js` SVG export, laser-bed packing, shopping list
 - `src/esp32cam.ino` camera sketch with live view, motion detection and microSD photos (not compiled or run in this repo's tests)
+- `src/music.js` generated jungle-safari background sound (Web Audio, no audio files)
 - `src/main.js` UI
 
 ## Notes

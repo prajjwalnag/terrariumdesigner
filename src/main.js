@@ -7,6 +7,7 @@ import { buildPanels, packSheets, buildBom, panelSvg, panelCard, BEDS } from './
 import { SPECIES, GROUPS, STAGES, speciesById, legSpanCm, speciesInfo, filterSpecies } from './species.js';
 import { suggestBox } from './fit.js';
 import { plantChecks } from './plants.js';
+import { createJungle } from './music.js';
 import { speciesCardHtml } from './speciescard.js';
 import { GLOSSARY, CARE_BASICS } from './glossary.js';
 import { LOGOS, rasterise, thumb } from './logos.js';
@@ -527,3 +528,23 @@ $('encdetail').addEventListener('click', (e) => {
   $('designer').scrollIntoView({ behavior: 'smooth' });
 });
 renderEncyclopedia();
+
+// ---------- background music ----------
+const music = createJungle();
+window.__music = music; // handy for checking the sound from the console
+try {
+  const v = parseInt(localStorage.getItem('terrarium-music-vol'), 10);
+  if (Number.isFinite(v)) { $('musicvol').value = Math.min(100, Math.max(0, v)); }
+} catch { /* ignore */ }
+music.setVolume($('musicvol').value / 100);
+$('music').onclick = async () => {
+  const on = !music.playing;
+  try { if (on) await music.start(); else music.stop(); } catch { toast('Sound is not available in this browser.'); return; }
+  $('music').setAttribute('aria-pressed', music.playing);
+  $('music').setAttribute('aria-label', music.playing ? 'Pause jungle background music' : 'Play jungle background music');
+  if (music.playing) toast('Jungle sounds on.');
+};
+$('musicvol').oninput = (e) => {
+  music.setVolume(e.target.value / 100);
+  try { localStorage.setItem('terrarium-music-vol', e.target.value); } catch { /* ignore */ }
+};
