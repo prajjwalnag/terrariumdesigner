@@ -7,7 +7,9 @@ import { buildPanels, packSheets, buildBom, panelSvg, panelCard, BEDS } from './
 import { SPECIES, GROUPS, STAGES, speciesById, legSpanCm } from './species.js';
 import { suggestBox } from './fit.js';
 import { LOGOS, rasterise, thumb } from './logos.js';
-import { KINDS, CATEGORIES, BEDS_3D, MAX_TOYS, toyDims, toyChecks, toyPlacement, toyStl } from './toys.js';
+import sketch from './esp32cam.ino?raw';
+import { analyseStl, supportsHint } from './printcheck.js';
+import { KINDS, CATEGORIES, SETS, toyGrams, placeToy, fitSet, BEDS_3D, MAX_TOYS, toyDims, toyChecks, toyPlacement, toyStl } from './toys.js';
 
 const $ = (id) => document.getElementById(id);
 const all = (sel) => [...document.querySelectorAll(sel)];
@@ -343,14 +345,20 @@ $('pbed').innerHTML = Object.entries(BEDS_3D).map(([k, l]) => `<option value="${
 $('pbed').value = state.pbed;
 $('pbed').onchange = (e) => { state.pbed = e.target.value; renderToys(); saveState(state); };
 
+const hintCache = new Map();
+function printHint(t, d) {
+  const key = `${t.kind}:${Math.round(d.s * 2)}`;
+  if (!hintCache.has(key)) hintCache.set(key, supportsHint(analyseStl(toyStl(t.kind, d.s)).overhangPct));
+  return hintCache.get(key);
+}
 const SLIDERS = [['x', 'Left–right', -100, 100, 100], ['z', 'Front–back', -100, 100, 100], ['rot', 'Rotate', -180, 180, 1], ['scale', 'Size', 50, 200, 100]];
 function renderToys() {
   const bed = Number(state.pbed);
   $('toylist').innerHTML = state.toys.map((t) => {
     const d = toyDims(t, geo.L);
     const big = Math.max(d.w, d.l) > bed || false;
-    const rows = SLIDERS.map(([k, lbl, lo, hi, div]) => `<label class="slider">${lbl}<input type="range" data-toyid="${t.id}" data-k="${k}" min="${lo}" max="${hi}" step="1" value="${Math.round(t[k] * div)}"><output></output></label>`).join('');
-    return `<div class="toy" data-id="${t.id}"><div class="toy-head"><span>${escapeHtml(KINDS[t.kind].name)}<small>${d.w.toFixed(0)} × ${d.l.toFixed(0)} × ${d.h.toFixed(0)} mm</small></span>
+    const rows = SLIDERS.filter(([k]) => !(k === 'scale' && KINDS[t.kind].fixed)).map(([k, lbl, lo, hi, div]) => `<label class="slider">${lbl}<input type="range" data-toyid="${t.id}" data-k="${k}" min="${lo}" max="${hi}" step="1" value="${Math.round(t[k] * div)}"><output></output></label>`).join('');
+    return `<div class="toy" data-id="${t.id}"><div class="toy-head"><span>${escapeHtml(KINDS[t.kind].name)}<small>${d.w.toFixed(0)} × ${d.l.toFixed(0)} × ${d.h.toFixed(0)} mm · about <b>${toyGrams(t.kind, d.s).toFixed(0)} g</b> of filament · ${printHint(t, d)}</small></span>
       <span class="toy-btns"><button type="button" class="btn" data-act="stl" data-toyid="${t.id}">STL</button><button type="button" class="btn" data-act="del" data-toyid="${t.id}" aria-label="Remove ${escapeHtml(KINDS[t.kind].name)}">✕</button></span></div>${rows}
       ${big ? `<p class="warn">Wider than your ${bed} mm print bed. Reduce the size.</p>` : ''}</div>`;
   }).join('');
@@ -370,9 +378,11 @@ const saveStl = (t) => {
 $('toykinds').addEventListener('click', (e) => {
   const b = e.target.closest('[data-toy]');
   if (!b || state.toys.length >= MAX_TOYS) return;
-  const n = state.toys.length;
-  state.toys.push({ id: Math.random().toString(36).slice(2, 10), kind: b.dataset.toy, x: [0.6, -0.6, 0, 0.6][n % 4], z: [-0.6, 0.6, 0.6, 0.6][n % 4], rot: 0, scale: 1 });
+  const placed = placeToy(b.dataset.toy, state.toys, state, geo, [0.5, -0.5]);
+  // If nothing fits cleanly, still add it so the warnings explain why.
+  state.toys.push(placed || { id: Math.random().toString(36).slice(2, 10), kind: b.dataset.toy, x: 0, z: 0, rot: 0, scale: 1 });
   update(); renderToys();
+  if (!placed) toast('No clear spot left. Use a bigger box or remove a toy.');
 });
 $('toylist').addEventListener('input', (e) => {
   const el = e.target.closest('input[data-toyid]');
@@ -401,3 +411,69 @@ $('toyall').onclick = () => {
   state.toys.forEach((t, i) => setTimeout(() => saveStl(t), i * 300));
 };
 renderToys();
+
+// ---------- drag toys in the 3D view ----------
+let dragFrame = 0;
+viewer.onToyMove((id, x, z) => {
+  const t = state.toys.find((q) => q.id === id);
+  if (!t) return;
+  t.x = x; t.z = z;
+  if (!dragFrame) dragFrame = requestAnimationFrame(() => { dragFrame = 0; update(); });
+});
+viewer.onToyDragEnd(() => { update(); renderToys(); });
+
+// ---------- toy sets ----------
+$('toysets').innerHTML = Object.entries(SETS).map(([k, v]) => `<button type="button" class="btn" data-toyset="${k}">${escapeHtml(v.name)}</button>`).join('');
+$('toysets').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-toyset]');
+  const set = b && SETS[b.dataset.toyset];
+  if (!set) return;
+  if (state.toys.length && !confirm(`Replace your ${state.toys.length} toy${state.toys.length > 1 ? 's' : ''} with the ${set.name.toLowerCase()}?`)) return;
+  let { toys, skipped } = fitSet(set, state, geo);
+  if (skipped) {
+    // Offer a bigger floor so the whole set fits.
+    for (let i = 1; i <= 24 && skipped; i++) {
+      const w = Math.min(LIMITS.max, state.w + i * 0.5), d = Math.min(LIMITS.max, state.d + i * 0.5);
+      const trial = { ...state, w, d };
+      const r = fitSet(set, trial, analyze(trial));
+      if (!r.skipped) {
+        if (confirm(`The whole ${set.name.toLowerCase()} needs a bigger floor. Enlarge the box to ${fmt(w)} × ${fmt(d)}?`)) { Object.assign(state, { w, d }); ({ toys, skipped } = r); }
+        break;
+      }
+    }
+  }
+  state.toys = toys;
+  change({});
+  renderToys();
+  toast(!toys.length ? 'This box is too small for that set. Try a bigger box.' : skipped ? `Added ${toys.length} of ${set.items.length} toys that fit. A bigger box fits the rest.` : `${set.name} added. Drag the toys to move them.`);
+});
+$('toyclear').onclick = () => { state.toys = []; update(); renderToys(); };
+
+// ---------- camera sketch ----------
+$('skdl').onclick = () => download('spider-cam.ino', sketch, 'text/plain');
+$('skcopy').onclick = async () => {
+  try { await navigator.clipboard.writeText(sketch); toast('Sketch copied.'); } catch { toast('Copy failed. Use Download instead.'); }
+};
+
+// ---------- print summary ----------
+$('print').onclick = () => {
+  const sp = speciesById(state.species);
+  const src = viewer.snapshot();
+  const out = document.createElement('canvas');
+  out.width = src.width; out.height = src.height;
+  const c = out.getContext('2d');
+  c.fillStyle = '#f3efe4'; c.fillRect(0, 0, out.width, out.height); c.drawImage(src, 0, 0);
+  const list = (items) => `<ul>${items.map((i) => `<li>${i}</li>`).join('')}</ul>`;
+  const bom = buildBom(state, geo, panels).map((i) => `<tr><td><b>${escapeHtml(i.name)}</b></td><td>${escapeHtml(i.qty)}</td><td class="muted">${escapeHtml(i.note)}</td></tr>`).join('');
+  const toys = state.toys.map((t) => { const d = toyDims(t, geo.L); return `<tr><td><b>${escapeHtml(KINDS[t.kind].name)}</b></td><td>${d.w.toFixed(0)} × ${d.l.toFixed(0)} × ${d.h.toFixed(0)} mm</td><td>about ${toyGrams(t.kind, d.s).toFixed(0)} g</td></tr>`; }).join('');
+  $('printsheet').innerHTML = `<h1>Spider enclosure ${fmt(state.w)} × ${fmt(state.d)} × ${fmt(state.h)}</h1>
+    <div class="muted">${sp ? `${escapeHtml(sp.name)} (${escapeHtml(sp.sci)}), ` : ''}leg span ${fmtCm(state.ls)}, ${state.type === 'terr' ? 'ground' : 'tree'} dweller, ${state.t > 0.15 ? 5 : 3} mm acrylic</div>
+    <img alt="3D preview" src="${out.toDataURL('image/png')}">
+    <h2>Fit checks</h2>${list(geo.rows.map((r) => `${r.ok ? '✓' : '!'} ${escapeHtml(r.text)}`))}
+    <h2>Cut list</h2><table>${geo.cut.map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`).join('')}</table>
+    <h2>Shopping list</h2><table>${bom}</table>
+    ${toys ? `<h2>3D-printed toys</h2><table>${toys}</table>` : ''}
+    <h2>Assembly</h2><ol>${[...document.querySelectorAll('.steps li')].map((li) => `<li>${li.innerHTML}</li>`).join('')}</ol>
+    <p class="muted">Check all dimensions before cutting. This tool checks geometry only; research your species' needs.</p>`;
+  window.print();
+};

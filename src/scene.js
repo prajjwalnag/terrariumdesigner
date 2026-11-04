@@ -136,6 +136,11 @@ export function createViewer(canvas) {
   let lid = null;
   let frustum = null;
   let current = null; // { s, g }
+  const toyRoots = [];
+  const callbacks = { onToyMove: null, onToyDragEnd: null };
+  const ray = new THREE.Raycaster();
+  const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  let toyDrag = null; // { id, dx, dz }
   let sizeKey = '';
   let auto = true;
   let visible = true;
@@ -166,6 +171,7 @@ export function createViewer(canvas) {
   function rebuild(s, g) {
     current = { s, g };
     disposeRoot();
+    toyRoots.length = 0;
     root = new THREE.Group();
     scene.add(root);
     frustum = null;
@@ -306,6 +312,8 @@ export function createViewer(canvas) {
       grp.scale.setScalar(1 / MM_PER_IN);
       grp.rotation.y = (toy.rot * Math.PI) / 180;
       grp.position.set(p.x, g.fy - 0.01, p.z);
+      grp.userData.toyId = toy.id;
+      toyRoots.push(grp);
       root.add(grp);
     });
 
@@ -361,10 +369,41 @@ export function createViewer(canvas) {
   }
 
   // --- interaction ---
+  const pointerNdc = (e) => {
+    const r = canvas.getBoundingClientRect();
+    return new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  };
+  function pickToy(e) {
+    if (!toyRoots.length) return null;
+    ray.setFromCamera(pointerNdc(e), camera);
+    const hit = ray.intersectObjects(toyRoots, true)[0];
+    if (!hit) return null;
+    let o = hit.object;
+    while (o && o.userData.toyId === undefined) o = o.parent;
+    return o ? o.userData.toyId : null;
+  }
+  function floorPoint(e) {
+    floorPlane.constant = -(current.g.fy - 0.01);
+    ray.setFromCamera(pointerNdc(e), camera);
+    return ray.ray.intersectPlane(floorPlane, new THREE.Vector3());
+  }
+  const toyPlacementFor = (toy) => toyPlacement(toy, current.g);
   const pointers = new Map();
   let pinch = 0;
   canvas.addEventListener('pointerdown', (e) => {
     canvas.setPointerCapture(e.pointerId);
+    const id = e.pointerType !== 'touch' || !pointers.size ? pickToy(e) : null;
+    if (id !== null && current && callbacks.onToyMove) {
+      const toy = current.s.toys.find((t) => t.id === id);
+      const p = floorPoint(e);
+      if (toy && p) {
+        const place = toyPlacementFor(toy);
+        toyDrag = { id, dx: place.x - p.x, dz: place.z - p.z };
+        canvas.style.cursor = 'move';
+        orbit.goal = null;
+        return;
+      }
+    }
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     orbit.goal = null;
     orbit.drag = true;
@@ -374,6 +413,18 @@ export function createViewer(canvas) {
     if (pointers.size === 2) pinch = 0;
   });
   canvas.addEventListener('pointermove', (e) => {
+    if (toyDrag) {
+      const p = floorPoint(e);
+      if (p) {
+        const toy = current.s.toys.find((t) => t.id === toyDrag.id);
+        const place = toyPlacementFor(toy);
+        const fx = place.ax > 0 ? Math.max(-1, Math.min(1, (p.x + toyDrag.dx) / place.ax)) : 0;
+        const fz = place.az > 0 ? Math.max(-1, Math.min(1, (p.z + toyDrag.dz) / place.az)) : 0;
+        callbacks.onToyMove(toyDrag.id, fx, fz);
+      }
+      return;
+    }
+    if (!pointers.size && e.pointerType === 'mouse') canvas.style.cursor = pickToy(e) !== null ? 'move' : 'grab';
     if (!pointers.has(e.pointerId)) return;
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.size === 2) {
@@ -389,6 +440,7 @@ export function createViewer(canvas) {
     orbit.ly = e.clientY;
   });
   const up = (e) => {
+    if (toyDrag) { toyDrag = null; canvas.style.cursor = 'grab'; if (callbacks.onToyDragEnd) callbacks.onToyDragEnd(); return; }
     pointers.delete(e.pointerId);
     pinch = 0;
     if (!pointers.size) { orbit.drag = false; canvas.style.cursor = 'grab'; }
@@ -449,6 +501,8 @@ export function createViewer(canvas) {
     setLogo: logo.set,
     setAuto: (v) => { auto = v; },
     setView,
+    onToyMove: (fn) => { callbacks.onToyMove = fn; },
+    onToyDragEnd: (fn) => { callbacks.onToyDragEnd = fn; },
     zoom: zoomBy,
     /** Render now and return the canvas, so the caller can export it before the buffer clears. */
     snapshot() {

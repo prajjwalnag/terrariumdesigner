@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { STLExporter } from 'three/addons/exporters/STLExporter.js';
-import { Brush, Evaluator, SUBTRACTION, ADDITION } from 'three-bvh-csg';
+import { Manifold } from './manifold.js';
 import { MM_PER_IN, fmtLen } from './format.js';
 
 export const MAX_TOYS = 8;
@@ -29,6 +29,8 @@ export const KINDS = {
   skullrock:  { cat: 'skull', name: 'Skull rock',      blurb: 'Solid skull to climb on',    dims: (s) => ({ w: s, l: 1.1 * s, h: 1.05 * s }) },
   crossbones: { cat: 'skull', name: 'Crossbones',      blurb: 'Crossed bones to climb',     dims: (s) => ({ w: 1.4 * s, l: 1.4 * s, h: 0.25 * s }) },
   skullbones: { cat: 'skull', name: 'Skull and bones', blurb: 'Small skull on crossbones',  dims: (s) => ({ w: 1.4 * s, l: 1.4 * s, h: 0.65 * s }) },
+  archway:    { cat: 'climb', name: 'Archway',         blurb: 'Ruined arch to walk through', dims: (s) => ({ w: 1.2 * s, l: 0.3 * s, h: 1.1 * s }) },
+  sensor:     { cat: 'other', fixed: true, name: 'Sensor holder', blurb: 'Pocket for a DHT22 (fixed size)', dims: () => ({ w: 22, l: 36, h: 18 }) },
   mound:      { cat: 'other', name: 'Mound',          blurb: 'Smooth dome to sit on',      dims: (s) => ({ w: s, l: s, h: 0.4 * s }) },
   dish:       { cat: 'other', name: 'Water dish',     blurb: 'Shallow dish, flat base',    dims: (s) => ({ w: 0.8 * s, l: 0.8 * s, h: Math.max(8, 0.12 * s) }) },
 };
@@ -36,266 +38,222 @@ export const CATEGORIES = { hide: 'Hides', climb: 'Climbing', skull: 'Skulls', o
 
 const wallFor = (s) => Math.max(2.4, 0.07 * s);
 
-function addBox(g, mat, w, h, d, x, y, z, rz = 0) {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-  m.position.set(x, y + h / 2, z);
-  m.rotation.z = rz;
-  g.add(m);
-  return m;
-}
-function addCyl(g, mat, rt, rb, h, x, y, z, seg = 20) {
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), mat);
-  m.position.set(x, y + h / 2, z);
-  g.add(m);
-  return m;
-}
-
 const cache = new Map();
 function cached(key, make) {
   if (!cache.has(key)) cache.set(key, make());
   return cache.get(key).clone();
 }
 
-/** Small boolean-geometry toolkit. evaluate() returns geometry in the first brush's local space, so each step bakes its transform in. */
+/**
+ * Boolean geometry on the manifold engine, which guarantees watertight output as 3D printing needs.
+ * Every toy is built as ONE unioned solid (no overlapping shells for the slicer to repair).
+ * Shapes use centre positions; solids made by a kit are freed when the result is converted.
+ */
 function csgKit() {
-  const ev = new Evaluator();
-  ev.attributes = ['position', 'normal'];
-  ev.useGroups = false;
-  const brush = (geo, x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1) => {
-    geo.deleteAttribute('uv');
-    const b = new Brush(geo);
-    b.position.set(x, y, z);
-    b.scale.set(sx, sy, sz);
-    b.updateMatrixWorld();
-    return b;
+  const pool = [];
+  const keep = (m) => { pool.push(m); return m; };
+  const tr = (m, x, y, z) => keep(m.translate([x, y, z]));
+  const kit = {
+    keep,
+    sph: (rx, ry, rz, x = 0, y = 0, z = 0) => tr(keep(keep(Manifold.sphere(1, 48)).scale([rx, ry, rz])), x, y, z),
+    box: (w, h, d, x = 0, y = 0, z = 0) => tr(Manifold.cube([w, h, d], true), x, y, z),
+    cylZ: (r, len, x = 0, y = 0, z = 0) => tr(Manifold.cylinder(len, r, r, 40, true), x, y, z),
+    cylX: (r, len, x = 0, y = 0, z = 0) => tr(keep(Manifold.cylinder(len, r, r, 24, true)).rotate([0, 90, 0]), x, y, z),
+    cylY: (r, h, x = 0, y = 0, z = 0) => tr(keep(Manifold.cylinder(h, r, r, 48, true)).rotate([-90, 0, 0]), x, y, z),
+    /** Cone along y: radius rLow at the bottom, rHigh at the top. */
+    cone: (rLow, rHigh, h, x = 0, y = 0, z = 0) => tr(keep(Manifold.cylinder(h, rLow, rHigh, 48, true)).rotate([-90, 0, 0]), x, y, z),
+    rot: (m, rx, ry, rz) => keep(m.rotate([rx, ry, rz])),
+    tr,
+    add: (a, b) => keep(a.add(b)),
+    sub: (a, b) => keep(a.subtract(b)),
+    union: (...ms) => ms.reduce((a, b) => keep(a.add(b))),
+    /** Convert to a flat-shaded three.js geometry and free every solid made by this kit. */
+    finish(m) {
+      const mesh = m.getMesh();
+      const n = mesh.vertProperties.length / mesh.numProp;
+      const pos = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) for (let c = 0; c < 3; c++) pos[i * 3 + c] = mesh.vertProperties[i * mesh.numProp + c];
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.setIndex(new THREE.BufferAttribute(mesh.triVerts, 1));
+      const flat = geo.toNonIndexed(); // flat shading, so cut edges stay crisp
+      flat.computeVertexNormals();
+      geo.dispose();
+      pool.forEach((p) => { try { p.delete(); } catch { /* already freed */ } });
+      return flat;
+    },
   };
-  const run = (a, b, op) => {
-    const m = ev.evaluate(a, b, op);
-    m.updateMatrixWorld();
-    const g = m.geometry.clone();
-    g.applyMatrix4(m.matrixWorld);
-    const nb = new Brush(g);
-    nb.updateMatrixWorld();
-    return nb;
-  };
-  const sph = (r = 1) => new THREE.SphereGeometry(r, 40, 28);
-  const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
-  const cylZ = (r, len) => { const g = new THREE.CylinderGeometry(r, r, len, 32); g.rotateX(Math.PI / 2); return g; };
-  const cylY = (r, h) => new THREE.CylinderGeometry(r, r, h, 40);
-  return { brush, run, sph, box, cylZ, cylY, add: (a, b) => run(a, b, ADDITION), sub: (a, b) => run(a, b, SUBTRACTION) };
+  return kit;
 }
 
 /** Hollow dome (upper half of an ellipsoid) with an open base. */
 function domeShell(k, s, rx, ry, rz, wall) {
-  const big = 4 * s;
-  const outer = k.sub(k.brush(k.sph(), 0, 0, 0, rx, ry, rz), k.brush(k.box(big, big, big), 0, -big / 2, 0));
-  return k.sub(outer, k.brush(k.sph(), 0, 0, 0, rx - wall, ry - wall, rz - wall));
+  const outer = k.sub(k.sph(rx, ry, rz), k.box(4 * s, 4 * s, 4 * s, 0, -2 * s, 0));
+  return k.sub(outer, k.sph(rx - wall, ry - wall, rz - wall));
+}
+
+/** Solid arch profile (straight sides, round top) extruded along z, flat on y = 0. */
+function archSolid(k, R, straight, len, zc = 0) {
+  const body = k.add(k.box(2 * R, straight, len, 0, straight / 2, zc), k.cylZ(R, len, 0, straight, zc));
+  return k.sub(body, k.box(4 * R, 2 * R, len + 2, 0, -R, zc));
 }
 
 /**
  * Skull facing +z with its base on y = 0. Hollow skulls are open underneath; solid ones keep shallow sockets.
  * o: hollow, eye (socket radius), mw / mh (mouth size), md (mouth depth), all as multiples of s.
  */
-function skullGeometry(s, o = {}) {
+function skullSolid(k, s, o = {}) {
   const { hollow = true, eye = 0.15, mw = 0.44, mh = 0.26, md = 0.6 } = o;
-  const key = `skull:${Math.round(s * 2)}:${hollow}:${eye}:${mw}:${mh}:${md}`;
-  return cached(key, () => {
-    const wall = wallFor(s);
-    const k = csgKit();
-    const cy = 0.55 * s;
-    let r = k.add(k.brush(k.sph(), 0, cy, 0, 0.5 * s, 0.5 * s, 0.55 * s), k.brush(k.box(0.62 * s, 0.34 * s, 0.7 * s), 0, 0.17 * s, 0.2 * s));
-    if (hollow) {
-      const cavity = k.add(
-        k.brush(k.sph(), 0, cy, 0, 0.5 * s - wall, 0.5 * s - wall, 0.55 * s - wall),
-        k.brush(k.box(0.62 * s - 2 * wall, 0.34 * s + 2, 0.7 * s - 2 * wall), 0, 0.17 * s - 1, 0.2 * s),
-      );
-      r = k.sub(r, cavity);
-    }
-    const eyeZ = hollow ? 0 : 0.34 * s; // solid skulls only get shallow sockets
-    [-1, 1].forEach((side) => { r = k.sub(r, k.brush(k.cylZ(eye * s, s), side * 0.2 * s, 0.66 * s, eyeZ + s / 2)); });
-    r = k.sub(r, k.brush(k.cylZ(0.06 * s, s), 0, 0.46 * s, (hollow ? 0 : 0.4 * s) + s / 2)); // nose
-    const depth = md * s + 0.2 * s;
-    r = k.sub(r, k.brush(k.box(mw * s, mh * s + 2, depth), 0, (mh * s) / 2 - 1, 0.55 * s - (md * s) / 2)); // mouth
-    return r.geometry;
-  });
-}
-
-/** Low skull dome with eye holes and a door at the front. */
-function skullCapGeometry(s) {
-  return cached(`skullcap:${Math.round(s * 2)}`, () => {
-    const k = csgKit();
-    let r = domeShell(k, s, 0.55 * s, 0.5 * s, 0.6 * s, wallFor(s));
-    [-1, 1].forEach((side) => { r = k.sub(r, k.brush(k.cylZ(0.12 * s, s), side * 0.2 * s, 0.26 * s, 0.6 * s)); });
-    r = k.sub(r, k.brush(k.box(0.46 * s, 0.22 * s + 2, 0.5 * s), 0, 0.11 * s - 1, 0.5 * s));
-    return r.geometry;
-  });
-}
-
-function caveGeometry(s) {
-  return cached(`cave:${Math.round(s * 2)}`, () => {
-    const k = csgKit();
-    let r = domeShell(k, s, 0.6 * s, 0.5 * s, 0.6 * s, wallFor(s));
-    r = k.sub(r, k.brush(k.cylZ(0.22 * s, s), 0, 0.2 * s, 0.6 * s));
-    r = k.sub(r, k.brush(k.box(0.44 * s, 0.2 * s + 2, s), 0, 0.1 * s - 1, 0.6 * s));
-    return r.geometry;
-  });
-}
-
-function logGeometry(s) {
-  return cached(`log:${Math.round(s * 2)}`, () => {
-    const k = csgKit();
-    const wall = wallFor(s);
-    const len = 1.4 * s;
-    let r = k.sub(k.brush(k.cylZ(0.5 * s, len)), k.brush(k.box(2 * s, s, 2 * len), 0, -s / 2, 0));
-    const inner = len - wall + 2;
-    r = k.sub(r, k.brush(k.cylZ(0.5 * s - wall, inner), 0, 0, -len / 2 + wall + inner / 2));
-    return r.geometry;
-  });
-}
-
-function dishGeometry(s) {
-  return cached(`dish:${Math.round(s * 2)}`, () => {
-    const k = csgKit();
-    const h = Math.max(8, 0.12 * s);
-    const wall = wallFor(s);
-    const r = k.sub(k.brush(k.cylY(0.4 * s, h), 0, h / 2, 0), k.brush(k.cylY(0.4 * s - wall, h), 0, h / 2 + wall, 0));
-    return r.geometry;
-  });
-}
-
-function addCrossbones(g, mat, s) {
-  const lenB = 1.3 * s, rb = 0.06 * s, kn = 0.1 * s;
-  addCyl(g, mat, 0.7 * s, 0.7 * s, 3, 0, 0, 0, 48);
-  [Math.PI / 5, -Math.PI / 5].forEach((a) => {
-    const bone = new THREE.Group();
-    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(rb, rb, lenB, 16), mat);
-    shaft.rotation.z = Math.PI / 2;
-    bone.add(shaft);
-    [-1, 1].forEach((e) => [-1, 1].forEach((f) => {
-      const ball = new THREE.Mesh(new THREE.SphereGeometry(kn, 14, 10), mat);
-      ball.position.set((e * lenB) / 2, 0, f * kn * 0.8);
-      bone.add(ball);
-    }));
-    bone.rotation.y = a;
-    bone.position.y = 3 + kn;
-    g.add(bone);
-  });
-}
-
-export function buildToy(kind, s, mat) {
-  const g = new THREE.Group();
   const wall = wallFor(s);
-  if (kind === 'tunnel') {
-    const w = 1.1 * s, len = 1.4 * s, R = w / 2, r = R - wall, straight = 0.12 * s;
-    const outer = new THREE.Shape();
-    outer.moveTo(-R, 0); outer.lineTo(R, 0); outer.lineTo(R, straight);
-    outer.absarc(0, straight, R, 0, Math.PI, false);
-    outer.lineTo(-R, 0);
-    const hole = new THREE.Path();
-    hole.moveTo(-r, 0); hole.lineTo(-r, straight);
-    hole.absarc(0, straight, r, Math.PI, 0, true);
-    hole.lineTo(r, 0); hole.closePath();
-    outer.holes.push(hole);
-    const geo = new THREE.ExtrudeGeometry(outer, { depth: len, bevelEnabled: false, curveSegments: 24 });
-    geo.translate(0, 0, -len / 2);
-    g.add(new THREE.Mesh(geo, mat));
-  } else if (kind === 'pyramid') {
-    const step = 0.18 * s;
-    [1, 0.7, 0.4].forEach((k, i) => addBox(g, mat, s * k, step, s * k, 0, i * step, 0));
-  } else if (kind === 'ramp') {
-    const len = 1.6 * s, h = 0.7 * s, wd = 0.5 * s;
-    const tri = new THREE.Shape();
-    tri.moveTo(-len / 2, 0); tri.lineTo(len / 2, 0); tri.lineTo(len / 2, h); tri.closePath();
-    const geo = new THREE.ExtrudeGeometry(tri, { depth: wd, bevelEnabled: false });
-    geo.translate(0, 0, -wd / 2);
-    g.add(new THREE.Mesh(geo, mat));
-    const ang = Math.atan2(h, len);
-    const nx = -Math.sin(ang), ny = Math.cos(ang); // surface normal
-    for (let i = 1; i <= 5; i++) {
-      const f = i / 6;
-      const px = (f - 0.5) * len, py = f * h;
-      const rung = addBox(g, mat, 2.5, 2.5, wd, px + nx * 1, 0, 0, ang);
-      rung.position.set(px + nx * 1, py + ny * 1, 0);
-    }
-  } else if (kind === 'post') {
-    const h = 1.8 * s, pr = 0.1 * s;
-    addCyl(g, mat, 0.5 * s, 0.5 * s, 4, 0, 0, 0, 36);
-    addCyl(g, mat, pr, pr, h - 4, 0, 4, 0, 24);
-    [0.3, 0.55, 0.8].forEach((f, i) => {
-      const len = 0.4 * s;
-      const peg = new THREE.Mesh(new THREE.CylinderGeometry(0.05 * s, 0.05 * s, len, 12), mat);
-      peg.rotation.z = Math.PI / 2;
-      peg.rotation.y = i * 2.1;
-      const a = i * 2.1;
-      peg.position.set(Math.cos(a) * (pr + len / 2 - 1), h * f, -Math.sin(a) * (pr + len / 2 - 1));
-      g.add(peg);
-    });
-  } else if (kind === 'mound') {
-    const R = s / 2;
-    const dome = new THREE.Mesh(new THREE.SphereGeometry(R, 40, 20, 0, Math.PI * 2, 0, Math.PI / 2), mat);
-    dome.scale.y = 0.8;
-    g.add(dome);
-    const base = new THREE.Mesh(new THREE.CircleGeometry(R, 40), mat);
-    base.rotation.x = Math.PI / 2;
-    g.add(base);
-  } else if (kind === 'skull') {
-    g.add(new THREE.Mesh(skullGeometry(s), mat));
-  } else if (kind === 'skullbig') {
-    g.add(new THREE.Mesh(skullGeometry(s, { eye: 0.19, mw: 0.56, mh: 0.3 }), mat));
-  } else if (kind === 'skullrock') {
-    g.add(new THREE.Mesh(skullGeometry(s, { hollow: false, md: 0.12 }), mat));
-  } else if (kind === 'skullcap') {
-    g.add(new THREE.Mesh(skullCapGeometry(s), mat));
-  } else if (kind === 'crossbones') {
-    addCrossbones(g, mat, s);
-  } else if (kind === 'skullbones') {
-    addCrossbones(g, mat, s);
-    const small = 0.55 * s;
-    const sk = new THREE.Mesh(skullGeometry(small, { hollow: false, md: 0.12 }), mat);
-    sk.position.set(0, 3 + 0.05 * s, 0);
-    g.add(sk);
-  } else if (kind === 'cave') {
-    g.add(new THREE.Mesh(caveGeometry(s), mat));
-  } else if (kind === 'log') {
-    g.add(new THREE.Mesh(logGeometry(s), mat));
-  } else if (kind === 'dish') {
-    g.add(new THREE.Mesh(dishGeometry(s), mat));
-  } else if (kind === 'bridge') {
-    const len = 1.6 * s, wd = 0.5 * s, deck = 0.65 * s, r0 = 0.45 * s;
-    const sh = new THREE.Shape();
-    sh.moveTo(-len / 2, 0); sh.lineTo(-len / 2, deck); sh.lineTo(len / 2, deck); sh.lineTo(len / 2, 0);
-    sh.lineTo(r0, 0); sh.absarc(0, 0, r0, 0, Math.PI, false); sh.lineTo(-len / 2, 0);
-    const geo = new THREE.ExtrudeGeometry(sh, { depth: wd, bevelEnabled: false, curveSegments: 24 });
-    geo.translate(0, 0, -wd / 2);
-    g.add(new THREE.Mesh(geo, mat));
-  } else if (kind === 'ladder') {
-    const h = 1.5 * s, rail = 0.08 * s, dp = 0.1 * s, gap = 0.6 * s;
-    addBox(g, mat, 0.8 * s, 3, 0.5 * s, 0, 0, 0);
-    [-1, 1].forEach((sd) => addBox(g, mat, rail, h, dp, (sd * gap) / 2, 0, 0));
-    for (let i = 1; i <= 6; i++) addBox(g, mat, gap, 0.05 * s, dp, 0, (i / 7) * h, 0);
-  } else if (kind === 'tower') {
-    const hb = 0.14 * s;
-    for (let i = 0; i < 6; i++) {
-      const w = s * (0.74 - 0.05 * i);
-      addBox(g, mat, w, hb, w, 0, i * hb, 0).rotation.y = (i * 20 * Math.PI) / 180;
-    }
-  } else if (kind === 'webframe') {
-    const h = 1.4 * s, post = 0.07 * s, dp = 0.1 * s;
-    addBox(g, mat, 1.2 * s, 3, 0.4 * s, 0, 0, 0);
-    [-1, 1].forEach((sd) => addBox(g, mat, post, h, dp, sd * 0.5 * s, 0, 0));
-    addBox(g, mat, 1.07 * s, post, dp, 0, h - post, 0);
-    [0.35, 0.68].forEach((f) => addBox(g, mat, 1 * s, post * 0.8, dp, 0, h * f, 0));
-  } else if (kind === 'platform') {
-    const w = 0.9 * s, h = 0.8 * s, top = Math.max(3, 0.05 * s), lr = 0.06 * s;
-    addBox(g, mat, w, top, w, 0, h - top, 0);
-    const o = w / 2 - lr - 1;
-    [[-1, -1], [-1, 1], [1, -1], [1, 1]].forEach(([a, b]) => addCyl(g, mat, lr, lr, h - top, a * o, 0, b * o, 16));
+  const cy = 0.55 * s;
+  let r = k.add(k.sph(0.5 * s, 0.5 * s, 0.55 * s, 0, cy, 0), k.box(0.62 * s, 0.34 * s, 0.7 * s, 0, 0.17 * s, 0.2 * s));
+  if (hollow) {
+    const cavity = k.add(
+      k.sph(0.5 * s - wall, 0.5 * s - wall, 0.55 * s - wall, 0, cy, 0),
+      k.box(0.62 * s - 2 * wall, 0.34 * s + 2, 0.7 * s - 2 * wall, 0, 0.17 * s - 1, 0.2 * s),
+    );
+    r = k.sub(r, cavity);
   }
+  const eyeZ = hollow ? 0 : 0.34 * s; // solid skulls only get shallow sockets
+  [-1, 1].forEach((side) => { r = k.sub(r, k.cylZ(eye * s, s, side * 0.2 * s, 0.66 * s, eyeZ + s / 2)); });
+  r = k.sub(r, k.cylZ(0.06 * s, s, 0, 0.46 * s, (hollow ? 0 : 0.4 * s) + s / 2)); // nose
+  const depth = md * s + 0.2 * s;
+  return k.sub(r, k.box(mw * s, mh * s + 2, depth, 0, (mh * s) / 2 - 1, 0.55 * s - (md * s) / 2)); // mouth
+}
+
+/** Two crossed bones with knobbed ends on a thin round base. */
+function crossbonesSolid(k, s) {
+  const lenB = 1.3 * s, rb = 0.06 * s, kn = 0.1 * s;
+  const parts = [k.cylY(0.7 * s, 3, 0, 1.5, 0)];
+  [36, -36].forEach((deg) => {
+    const bone = k.union(
+      k.cylX(rb, lenB),
+      ...[-1, 1].flatMap((e) => [-1, 1].map((f) => k.sph(kn, kn, kn, (e * lenB) / 2, 0, f * kn * 0.8))),
+    );
+    parts.push(k.tr(k.rot(bone, 0, deg, 0), 0, 3 + kn, 0));
+  });
+  return k.union(...parts);
+}
+
+/** Fixed-size holder for a DHT22-style sensor body (about 15 x 25 x 8 mm) with air slots in the front. */
+function sensorSolid(k) {
+  let r = k.box(22, 18, 36, 0, 9, 0);
+  r = k.sub(r, k.box(16.6, 12, 27.6, 0, 12.5, -0.2)); // pocket, open at the top
+  for (const x of [-5, 0, 5]) r = k.sub(r, k.box(2.4, 8, 12, x, 9, 17));
+  return r;
+}
+
+function solidFor(kind, s, k) {
+  const wall = wallFor(s);
+  switch (kind) {
+    case 'tunnel': {
+      const R = 0.55 * s, straight = 0.12 * s, len = 1.4 * s;
+      return k.sub(archSolid(k, R, straight, len), archSolid(k, R - wall, straight, len + 2));
+    }
+    case 'cave': {
+      const r = domeShell(k, s, 0.6 * s, 0.5 * s, 0.6 * s, wall);
+      return k.sub(k.sub(r, k.cylZ(0.22 * s, s, 0, 0.2 * s, 0.6 * s)), k.box(0.44 * s, 0.2 * s + 2, s, 0, 0.1 * s - 1, 0.6 * s));
+    }
+    case 'log': {
+      const len = 1.4 * s, inner = len - wall + 2;
+      const r = k.sub(k.cylZ(0.5 * s, len), k.box(2 * s, s, 2 * len, 0, -s / 2, 0));
+      return k.sub(r, k.cylZ(0.5 * s - wall, inner, 0, 0, -len / 2 + wall + inner / 2));
+    }
+    case 'pyramid': {
+      const step = 0.18 * s;
+      return k.union(...[1, 0.7, 0.4].map((f, i) => k.box(s * f, step, s * f, 0, i * step + step / 2, 0)));
+    }
+    case 'ramp': {
+      const len = 1.6 * s, h = 0.7 * s, wd = 0.5 * s, a = Math.atan2(h, len), deg = (a * 180) / Math.PI;
+      const nx = -Math.sin(a), ny = Math.cos(a); // slope normal
+      const cutter = k.tr(k.rot(k.box(4 * len, 4 * len, wd + 2), 0, 0, deg), nx * 2 * len, h / 2 + ny * 2 * len, 0);
+      const wedge = k.sub(k.box(len, h, wd, 0, h / 2, 0), cutter);
+      const rungs = [1, 2, 3, 4, 5].map((i) => {
+        const f = i / 6;
+        return k.tr(k.rot(k.box(2.5, 2.5, wd), 0, 0, deg), (f - 0.5) * len + nx, f * h + ny, 0);
+      });
+      return k.union(wedge, ...rungs);
+    }
+    case 'post': {
+      const h = 1.8 * s, pr = 0.1 * s, parts = [k.cylY(0.5 * s, 4, 0, 2, 0), k.cylY(pr, h - 3, 0, 4 + (h - 4) / 2 - 0.5, 0)];
+      [0.3, 0.55, 0.8].forEach((f, i) => {
+        const len = 0.4 * s;
+        parts.push(k.tr(k.rot(k.cylX(0.05 * s, len, pr + len / 2 - 1, 0, 0), 0, ((i * 2.1) * 180) / Math.PI, 0), 0, h * f, 0));
+      });
+      return k.union(...parts);
+    }
+    case 'platform': {
+      // Pedestal table: the disc is carried on a flare shallower than 45 degrees, so it needs no supports.
+      const R = 0.45 * s, h = 0.8 * s, top = Math.max(3, 0.05 * s), col = 0.16 * s, flare = 1.15 * (R - col);
+      // Parts overlap by 1 mm so the engine fuses them into one solid (touching faces can pinch).
+      const colH = h - top - flare - 3 + 1;
+      return k.union(
+        k.cylY(0.28 * s, 4, 0, 2, 0),
+        k.cylY(col, colH, 0, 3 + colH / 2, 0),
+        k.cone(col, R, flare, 0, h - top - flare / 2, 0),
+        k.cylY(R, top + 1, 0, h - (top + 1) / 2, 0),
+      );
+    }
+    case 'bridge': {
+      const len = 1.6 * s, wd = 0.5 * s, deck = 0.65 * s;
+      return k.sub(k.box(len, deck, wd, 0, deck / 2, 0), archSolid(k, 0.45 * s, 0, wd + 2));
+    }
+    case 'ladder': {
+      const h = 1.5 * s, rail = 0.08 * s, dp = 0.1 * s, gap = 0.6 * s;
+      const parts = [k.box(0.8 * s, 3, 0.5 * s, 0, 1.5, 0), ...[-1, 1].map((sd) => k.box(rail, h, dp, (sd * gap) / 2, h / 2, 0))];
+      for (let i = 1; i <= 6; i++) parts.push(k.box(gap, 0.05 * s, dp, 0, (i / 7) * h, 0));
+      return k.union(...parts);
+    }
+    case 'tower': {
+      // Each block is turned 15 degrees and shrunk so its corners stay inside the block below: nothing overhangs.
+      const hb = 0.14 * s;
+      return k.union(...Array.from({ length: 6 }, (_, i) => k.tr(k.rot(k.box(s * 0.8 ** i, hb + (i < 5 ? 0.5 : 0), s * 0.8 ** i), 0, i * 15, 0), 0, i * hb + hb / 2, 0)));
+    }
+    case 'archway':
+      return k.sub(archSolid(k, 0.6 * s, 0.5 * s, 0.3 * s), archSolid(k, 0.3 * s, 0.5 * s, 0.3 * s + 2));
+    case 'webframe': {
+      const h = 1.4 * s, post = 0.07 * s, dp = 0.1 * s;
+      return k.union(
+        k.box(1.2 * s, 3, 0.4 * s, 0, 1.5, 0),
+        ...[-1, 1].map((sd) => k.box(post, h, dp, sd * 0.5 * s, h / 2, 0)),
+        k.box(1.0 * s, post, dp, 0, h - post / 2, 0),
+        ...[0.35, 0.68].map((f) => k.box(1.0 * s, post * 0.8, dp, 0, h * f, 0)),
+      );
+    }
+    case 'skull': return skullSolid(k, s);
+    case 'skullbig': return skullSolid(k, s, { eye: 0.19, mw: 0.56, mh: 0.3 });
+    case 'skullrock': return skullSolid(k, s, { hollow: false, md: 0.12 });
+    case 'skullcap': {
+      let r = domeShell(k, s, 0.55 * s, 0.5 * s, 0.6 * s, wall);
+      [-1, 1].forEach((side) => { r = k.sub(r, k.cylZ(0.12 * s, s, side * 0.2 * s, 0.26 * s, 0.6 * s)); });
+      return k.sub(r, k.box(0.46 * s, 0.22 * s + 2, 0.5 * s, 0, 0.11 * s - 1, 0.5 * s));
+    }
+    case 'crossbones': return crossbonesSolid(k, s);
+    case 'skullbones': return k.add(crossbonesSolid(k, s), k.tr(skullSolid(k, 0.55 * s, { hollow: false, md: 0.12 }), 0, 3 + 0.05 * s, 0));
+    case 'mound': return k.sub(k.sph(0.5 * s, 0.4 * s, 0.5 * s), k.box(2 * s, s, 2 * s, 0, -0.5 * s, 0));
+    case 'dish': {
+      const h = Math.max(8, 0.12 * s);
+      return k.sub(k.cylY(0.4 * s, h, 0, h / 2, 0), k.cylY(0.4 * s - wall, h, 0, h / 2 + wall, 0));
+    }
+    case 'sensor': return sensorSolid(k);
+    default: throw new Error(`Unknown toy: ${kind}`);
+  }
+}
+
+/** A toy as a three.js group (one mesh), in millimetres with its base on y = 0. */
+export function buildToy(kind, s, mat) {
+  const geo = cached(`${kind}:${KINDS[kind].fixed ? 0 : Math.round(s * 2)}`, () => {
+    const k = csgKit();
+    return k.finish(solidFor(kind, s, k));
+  });
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(geo, mat));
   return g;
 }
 
 /** Overall size in mm of a placed toy: base size follows the spider's leg span and the toy's own scale. */
 export function toySizeMm(toy, legSpanIn) {
+  if (KINDS[toy.kind].fixed) return 1;
   return Math.max(25, legSpanIn * MM_PER_IN * 0.9 * toy.scale);
 }
 export function toyDims(toy, legSpanIn) {
@@ -324,6 +282,20 @@ export function toyChecks(state, g) {
     ok: pct <= 40,
     text: pct <= 40 ? `Toys cover about ${pct}% of the floor, which leaves room to roam.` : `Toys cover about ${pct}% of the floor. Remove one or shrink them so your spider keeps open space.`,
   });
+  const spots = state.toys.map((t) => ({ t, ...toyPlacement(t, g) }));
+  const clash = [];
+  for (let i = 0; i < spots.length; i++) {
+    for (let j = i + 1; j < spots.length; j++) {
+      if (Math.hypot(spots[i].x - spots[j].x, spots[i].z - spots[j].z) < 0.7 * (spots[i].r + spots[j].r)) clash.push(`${KINDS[spots[i].t.kind].name} and ${KINDS[spots[j].t.kind].name}`);
+    }
+  }
+  if (clash.length) rows.push({ ok: false, text: `Overlapping toys: ${clash.slice(0, 3).join('; ')}${clash.length > 3 ? '…' : ''}. Drag them apart.` });
+  if (state.decor) {
+    const dish = Math.max(0.25, Math.min(0.5, g.m0 * 0.1));
+    const dx = g.iw / 2 - dish - 0.15, dz = g.idp / 2 - dish - 0.15; // same spot the scene puts the water bowl
+    const hit = spots.filter((o) => Math.hypot(o.x - dx, o.z - dz) < 0.7 * (o.r + dish));
+    if (hit.length) rows.push({ ok: false, text: `${hit.map((o) => KINDS[o.t.kind].name).join(', ')} covers the water bowl. Move ${hit.length > 1 ? 'them' : 'it'} away from the front-right corner.` });
+  }
   const tall = state.toys.filter((t) => toyDims(t, g.L).h / MM_PER_IN > g.free - 0.4);
   if (tall.length) {
     rows.push({ ok: false, text: `${tall.map((t) => KINDS[t.kind].name).join(', ')} ${tall.length > 1 ? 'reach' : 'reaches'} nearly to the lid (free height ${f(g.free)}). Scale ${tall.length > 1 ? 'them' : 'it'} down so there is a gap to climb past.` });
@@ -337,4 +309,66 @@ export function toyStl(kind, s) {
   grp.rotation.x = Math.PI / 2;
   grp.updateMatrixWorld(true);
   return new STLExporter().parse(grp, { binary: true });
+}
+
+/** Approximate solid volume of a toy in mm^3 (overlapping parts are counted twice, so treat as an upper bound). */
+export function toyVolumeMm3(kind, s) {
+  const grp = buildToy(kind, s, new THREE.MeshBasicMaterial());
+  grp.updateMatrixWorld(true);
+  let v = 0;
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  grp.traverse((m) => {
+    if (!m.isMesh) return;
+    const geo = m.geometry, pos = geo.attributes.position, idx = geo.index;
+    const n = idx ? idx.count : pos.count;
+    for (let i = 0; i < n; i += 3) {
+      const [i0, i1, i2] = idx ? [idx.getX(i), idx.getX(i + 1), idx.getX(i + 2)] : [i, i + 1, i + 2];
+      a.fromBufferAttribute(pos, i0).applyMatrix4(m.matrixWorld);
+      b.fromBufferAttribute(pos, i1).applyMatrix4(m.matrixWorld);
+      c.fromBufferAttribute(pos, i2).applyMatrix4(m.matrixWorld);
+      v += a.dot(b.cross(c)) / 6;
+    }
+  });
+  return Math.abs(v);
+}
+
+/** Rough PLA/PETG use in grams: walls plus 15% infill come to roughly 40% of the solid volume. */
+export function toyGrams(kind, s) {
+  return (toyVolumeMm3(kind, s) / 1000) * 1.24 * 0.4;
+}
+
+/** One-click groups of toys, positions as -1..1 fractions of the free floor. */
+export const SETS = {
+  skull:   { name: 'Skull set',      items: [['skullbig', 0.5, -0.5, 20], ['crossbones', -0.6, 0.5, 0], ['skullrock', 0.55, 0.55, -25]] },
+  jungle:  { name: 'Jungle gym',     items: [['tower', -0.6, -0.5, 0], ['ladder', 0.6, -0.5, 0], ['webframe', 0, 0.6, 0], ['mound', 0.65, 0.55, 0]] },
+  starter: { name: 'Starter hides',  items: [['tunnel', -0.5, -0.45, 0], ['ramp', 0.5, -0.5, 90], ['pyramid', -0.6, 0.55, 0], ['mound', 0.6, 0.5, 0]] },
+  tree:    { name: 'Tree dweller',   items: [['post', -0.6, -0.55, 0], ['platform', 0.55, -0.45, 0], ['ladder', 0.6, 0.55, 0], ['archway', -0.4, 0.55, 0]] },
+};
+
+const GRID = [-1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1];
+const newId = () => Math.random().toString(36).slice(2, 10);
+
+/**
+ * Find a spot for a toy that causes no new warnings (no overlap, floor coverage, height or water bowl clash).
+ * Tries full size first, then 80% (hides stop being usable if they shrink further). Returns the toy or null.
+ */
+export function placeToy(kind, existing, state, g, pref = [0, 0], rot = 0) {
+  const spots = GRID.flatMap((x) => GRID.map((z) => [x, z])).sort((a, b) => Math.hypot(a[0] - pref[0], a[1] - pref[1]) - Math.hypot(b[0] - pref[0], b[1] - pref[1]));
+  for (const scale of KINDS[kind].fixed ? [1] : [1, 0.8]) {
+    for (const [x, z] of spots) {
+      const toy = { id: newId(), kind, x, z, rot, scale };
+      if (toyChecks({ ...state, toys: [...existing, toy] }, g).every((r) => r.ok)) return toy;
+    }
+  }
+  return null;
+}
+
+/** Lay out a set inside the current box, skipping anything that does not fit. */
+export function fitSet(set, state, g) {
+  const toys = [];
+  set.items.forEach(([kind, x, z, rot]) => {
+    const t = placeToy(kind, toys, state, g, [x, z], rot);
+    if (t) toys.push(t);
+  });
+  return { toys, skipped: set.items.length - toys.length };
 }

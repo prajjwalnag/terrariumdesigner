@@ -192,3 +192,23 @@ section.inner { padding: 44px 16px; }
 .logos button { padding: 6px 2px; flex-direction: column; gap: 2px; font-size: 10.5px; color: var(--text); line-height: 1.1; text-align: center; }
 .logos button svg { display: block; }
 .logos button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+
+.sets { display: flex; flex-wrap: wrap; gap: 6px; }
+.sets .btn { padding: 4px 10px; font-size: 12.5px; }
+.tips { padding-left: 18px; margin: 0; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+.toy-head small b { color: var(--accent); font-weight: 600; }
+
+/* print summary */
+.printsheet { display: none; }
+@media print {
+  body > *:not(#printsheet) { display: none !important; }
+  .printsheet { display: block; color: #111; background: #fff; font-size: 12px; padding: 0; }
+  .printsheet h1 { font-size: 22px; margin: 0 0 4px; }
+  .printsheet h2 { font-size: 14px; margin: 16px 0 6px; border-bottom: 1px solid #bbb; padding-bottom: 3px; color: #111; text-transform: none; letter-spacing: 0; }
+  .printsheet img { max-width: 100%; max-height: 300px; display: block; margin: 8px 0; }
+  .printsheet table { border-collapse: collapse; width: 100%; }
+  .printsheet td { padding: 3px 6px; border-bottom: 1px solid #ddd; vertical-align: top; }
+  .printsheet ol, .printsheet ul { margin: 4px 0; padding-left: 18px; }
+  .printsheet .muted { color: #555; }
+  @page { margin: 14mm; }
+}

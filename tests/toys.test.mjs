@@ -69,3 +69,31 @@ test('every toy stands on the build plate and roughly matches its stated size', 
     assert.ok(Math.abs(maxZ - want) < 0.15 * want + 4, `${k} height ${maxZ.toFixed(1)} vs ${want.toFixed(1)}`);
   }
 });
+
+import { toyGrams, SETS } from '../src/toys.js';
+test('filament estimates are plausible and sets are valid', () => {
+  for (const k of Object.keys(KINDS)) {
+    const g = toyGrams(k, 60);
+    assert.ok(g > 0.3 && g < 300, `${k} ${g}`);
+  }
+  for (const set of Object.values(SETS)) {
+    assert.ok(set.items.length <= 8);
+    set.items.forEach(([k]) => assert.ok(KINDS[k], k));
+  }
+});
+
+test('overlapping toys are flagged', () => {
+  const s = { ...defaults(), w: 8, d: 8, h: 6, toys: [{ id: 'a', kind: 'tunnel', x: 0, z: 0, rot: 0, scale: 1 }, { id: 'b', kind: 'cave', x: 0, z: 0, rot: 0, scale: 1 }] };
+  assert.ok(toyChecks(s, analyze(s)).some((r) => /Overlapping/.test(r.text)));
+});
+
+import { fitSet, placeToy } from '../src/toys.js';
+test('sets and single toys are placed without causing warnings', () => {
+  const s = { ...defaults(), w: 10, d: 8, h: 6, sd: 1.5, type: 'terr', ls: 13 / 2.54 };
+  const g = analyze(s);
+  for (const set of Object.values(SETS)) {
+    const { toys } = fitSet(set, s, g);
+    assert.ok(toyChecks({ ...s, toys }, g).every((r) => r.ok), set.name);
+  }
+  assert.ok(placeToy('dish', [], s, g));
+});
