@@ -1,4 +1,5 @@
 import { MM_PER_IN, round2, escapeHtml } from './format.js';
+import { plantBom } from './plants.js';
 import { CAM_HOLE_MM, ventLayout, ventBlockedByCamera, magnetRadius } from './calc.js';
 
 export const BEDS = {
@@ -147,6 +148,7 @@ export function buildBom(s, g, panels) {
   if (s.cam) items.push({ name: 'ESP32-CAM module', qty: '1', note: `Needs a ${CAM_HOLE_MM} mm hole${s.cpos === 'corner' ? ' (angled slot)' : ''} and a 5 V supply. Keep the board outside the humid box.` });
   if (s.vents) items.push({ name: 'Vent holes', qty: `${holes} × ${g.ventMm} mm`, note: 'Cut by the laser. Optionally cover with fine mesh from the outside.' });
   if (s.decor) items.push({ name: 'Substrate', qty: `about ${substrateL.toFixed(1)} L`, note: `${(g.sd * MM_PER_IN).toFixed(0)} mm deep. Slightly more if you plan to burrow-pack it.` });
+  items.push(...plantBom(s));
   items.push({ name: 'Acrylic cement', qty: '1 small bottle', note: 'Thin solvent cement (for example Weld-On 4) for the wall seams.' });
   return items;
 }

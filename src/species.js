@@ -114,6 +114,7 @@ export function speciesInfo(id) {
     life: `${life} years`,
     temp: `${temp[0]}–${temp[1]} °C (${f(temp[0])}–${f(temp[1])} °F)`,
     rh: `${rh[0]}–${rh[1]}%`,
+    rhRange: rh,
     diet: DIET[sp.group],
     setup: `${SUBSTRATE[sp.type]}${sp.burrow ? ' Likes to burrow, so give deeper substrate.' : ''}`,
     note: sp.note || '',

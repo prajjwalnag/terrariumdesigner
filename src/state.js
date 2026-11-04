@@ -23,6 +23,8 @@ export const defaults = () => ({
   lift: 0,
   auto: true,
   spider: true,
+  monstera: false,
+  moss: false,
   ventMm: null,
   logoData: null,
   bed: '600x300',
@@ -59,7 +61,7 @@ function applyQuery(s, search) {
   s.cpos = pick('cpos', ['top', 'side', 'corner']) ?? s.cpos;
   s.type = pick('type', ['terr', 'arb']) ?? s.type;
   s.unit = pick('unit', ['in', 'cm']) ?? s.unit;
-  for (const k of ['cam', 'decor', 'vents', 'logo', 'spider']) {
+  for (const k of ['cam', 'decor', 'vents', 'logo', 'spider', 'monstera', 'moss']) {
     if (q.get(k) === '0' || q.get(k) === '1') s[k] = q.get(k) === '1';
   }
   return s;
@@ -93,7 +95,7 @@ export function shareUrl(s) {
     w: +s.w.toFixed(3), d: +s.d.toFixed(3), h: +s.h.toFixed(3),
     ls: +(s.ls * CM_PER_IN).toFixed(1), sd: s.sd, t: s.t > 0.15 ? 5 : 3,
     type: s.type, cpos: s.cpos, unit: s.unit,
-    cam: +s.cam, decor: +s.decor, vents: +s.vents, logo: +s.logo, spider: +s.spider,
+    cam: +s.cam, decor: +s.decor, vents: +s.vents, logo: +s.logo, spider: +s.spider, monstera: +s.monstera, moss: +s.moss,
   });
   if (s.ventMm != null) q.set('vm', s.ventMm);
   return `${location.origin}${location.pathname}?${q}`;

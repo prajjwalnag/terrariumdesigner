@@ -6,6 +6,7 @@ import { loadState, saveState, shareUrl, sanitize, defaults, LIMITS } from './st
 import { buildPanels, packSheets, buildBom, panelSvg, panelCard, BEDS } from './panels.js';
 import { SPECIES, GROUPS, STAGES, speciesById, legSpanCm, speciesInfo } from './species.js';
 import { suggestBox } from './fit.js';
+import { plantChecks } from './plants.js';
 import { LOGOS, rasterise, thumb } from './logos.js';
 import sketch from './esp32cam.ino?raw';
 import { analyseStl, supportsHint } from './printcheck.js';
@@ -105,7 +106,7 @@ function renderResults() {
 
 function update() {
   geo = analyze(state);
-  geo.rows.push(...toyChecks(state, geo));
+  geo.rows.push(...toyChecks(state, geo), ...plantChecks(state, geo));
   viewer.rebuild(state, geo);
   renderResults();
   saveState(state);

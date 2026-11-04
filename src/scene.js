@@ -20,6 +20,10 @@ const M = {
   black: mat(0x222222, { roughness: 0.5 }),
   lens: new THREE.MeshBasicMaterial({ color: 0x3a5fa8 }),
   toy: mat(0x6fb39a, { roughness: 0.55 }),
+  leaf: mat(0x2f7d3a, { roughness: 0.55, side: THREE.DoubleSide }),
+  vine: mat(0x4a6b2a, { roughness: 0.8 }),
+  moss: mat(0x5f8f2e, { roughness: 1 }),
+  moss2: mat(0x46702a, { roughness: 1 }),
   frustum: new THREE.LineBasicMaterial({ color: 0x1d9e75, transparent: true, opacity: 0.9 }),
 };
 
@@ -61,6 +65,22 @@ function cameraModule(parent, plateT, extra) {
   lens.position.set(0, -len - 0.001, 0);
   g.add(lens);
   return g;
+}
+
+/** Heart-shaped Monstera adansonii leaf, about 2 units tall, with the characteristic holes. */
+function makeLeafGeometry() {
+  const sh = new THREE.Shape();
+  sh.moveTo(0, -1);
+  sh.bezierCurveTo(0.2, -0.7, 1, -0.2, 0.9, 0.4);
+  sh.bezierCurveTo(0.8, 0.9, 0.2, 1, 0, 0.6);
+  sh.bezierCurveTo(-0.2, 1, -0.8, 0.9, -0.9, 0.4);
+  sh.bezierCurveTo(-1, -0.2, -0.2, -0.7, 0, -1);
+  [[0.42, 0.25, 0.13], [-0.42, 0.25, 0.13], [0.3, -0.2, 0.11], [-0.3, -0.2, 0.11], [0, 0.05, 0.1]].forEach(([x, y, r]) => {
+    const h = new THREE.Path();
+    h.absellipse(x, y, r * 0.8, r * 1.2, 0, Math.PI * 2, true, 0);
+    sh.holes.push(h);
+  });
+  return new THREE.ShapeGeometry(sh, 10);
 }
 
 function makeLogoTexture() {
@@ -303,6 +323,40 @@ export function createViewer(canvas) {
         blade.position.set(W / 2 - t - 0.45 + dx, top + (bladeH * k) / 2, -(D / 2 - t - 0.45) + dz);
         root.add(blade);
       });
+    }
+
+    // Live plants and moss (decor only)
+    if (s.decor && s.moss) {
+      let seed = 7;
+      const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+      const top = t + sd;
+      const n = Math.max(6, Math.min(40, Math.round(g.iw * g.idp * 0.9)));
+      for (let i = 0; i < n; i++) {
+        const r = 0.15 + rnd() * 0.25;
+        const patch = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 8), i % 2 ? M.moss : M.moss2);
+        patch.scale.y = 0.3;
+        patch.position.set((rnd() - 0.5) * (g.iw - 2 * r), top + 0.02, (rnd() - 0.5) * (g.idp - 2 * r));
+        root.add(patch);
+      }
+    }
+    if (s.decor && s.monstera) {
+      const top = t + sd;
+      const height = Math.max(1, Math.min(free * 0.85, 8));
+      const x0 = -(W / 2 - t - 0.45), z0 = D * 0.12;
+      const pts = [];
+      for (let i = 0; i <= 6; i++) pts.push(new THREE.Vector3(x0 + Math.sin(i * 1.3) * 0.12 + i * 0.03, top + (height * i) / 6, z0 + Math.cos(i * 1.1) * 0.15));
+      root.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 0.03, 6), M.vine));
+      const size = Math.max(0.3, Math.min(1.1, m0 * 0.11));
+      const leafGeo = makeLeafGeometry();
+      for (let i = 1; i <= 6; i++) {
+        const p = pts[i];
+        const leaf = new THREE.Mesh(leafGeo, M.leaf);
+        const ang = i * 2.4;
+        leaf.scale.setScalar(size * (1.05 - i * 0.07));
+        leaf.position.set(p.x + Math.cos(ang) * size * 0.9, p.y, p.z + Math.sin(ang) * size * 0.9);
+        leaf.rotation.set(-0.5, -ang + Math.PI / 2, 0, 'YXZ');
+        root.add(leaf);
+      }
     }
 
     // Printed toys
