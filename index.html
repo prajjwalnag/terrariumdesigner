@@ -284,13 +284,15 @@
   <div class="guide-grid">
     <div class="card">
       <h3>ESP32-CAM sketch</h3>
-      <p class="hint">A starter Arduino sketch for an AI-Thinker ESP32-CAM: a live view page, one-tap snapshots and a video stream you can open on your phone. Put in your Wi-Fi name and password, upload it, and open the address shown in the Serial Monitor.</p>
+      <p class="hint">A starter Arduino sketch for an AI-Thinker ESP32-CAM. It gives you a live view and video stream on your phone, and it watches for movement and saves a few photos to a microSD card each time, with a page to browse them. Put in your Wi-Fi name and password, upload it, and open the address shown in the Serial Monitor.</p>
       <div class="row"><button id="skdl" class="btn primary" type="button">Download .ino</button><button id="skcopy" class="btn" type="button">Copy code</button></div>
-      <p class="hint">I could not compile this sketch here, so test it on your board and tell me about any errors.</p>
+      <p class="hint">I could not compile this sketch here, and I have not run the motion detection on a real board. Test it and tell me about any errors.</p>
     </div>
     <div class="card">
       <h3>Wiring and tips</h3>
       <ul class="tips">
+        <li>Motion saving needs a FAT32 microSD card (up to 32 GB) in the board's slot. Saved photos are named with the UTC date and time.</li>
+        <li>Spiders move rarely and are small. Tune <code>CELLS_TO_TRIGGER</code> and <code>CELL_THRESHOLD</code> at the top of the sketch. Lamp changes and shadows can also trigger it, and the camera has no night vision.</li>
         <li>Power from a stable 5 V supply (500 mA or more). Weak power is the most common cause of resets.</li>
         <li>To upload without a programmer base, use a USB-serial adapter: 5V, GND, U0R to TX, U0T to RX, and tie IO0 to GND while uploading, then remove it and press reset.</li>
         <li>Keep the board outside the humid space. Only the lens barrel should poke through the 9 mm hole.</li>
