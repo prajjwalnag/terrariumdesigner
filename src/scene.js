@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { ventLayout, ventBlockedByCamera } from './calc.js';
+import { createMoss, makeSoilTexture } from './moss.js';
 import { buildToy, toyPlacement, toySizeMm } from './toys.js';
 import { MM_PER_IN } from './format.js';
 
@@ -11,7 +12,7 @@ const M = {
   magnet: mat(0xd9b44a, { roughness: 0.25, metalness: 0.85 }),
   vent: new THREE.MeshBasicMaterial({ color: 0x111111, transparent: true, opacity: 0.9, side: THREE.DoubleSide }),
   spider: mat(0x8a5a35, { roughness: 0.8 }),
-  substrate: mat(0x5a3e28, { roughness: 1 }),
+  substrate: mat(0xffffff, { roughness: 1 }),
   bark: mat(0xb07a40, { roughness: 0.9, side: THREE.DoubleSide }),
   water: mat(0x4aa3d8, { roughness: 0.2 }),
   plant: mat(0x4c9a3a, { roughness: 0.8 }),
@@ -147,6 +148,10 @@ export function createViewer(canvas) {
   const fill = new THREE.DirectionalLight(0xffffff, 0.35);
   fill.position.set(-8, 4, -6);
   scene.add(fill);
+
+  M.substrate.map = makeSoilTexture();
+  M.substrate.bumpMap = M.substrate.map;
+  M.substrate.bumpScale = 0.6;
 
   const logo = makeLogoTexture();
   const logoMat = new THREE.MeshBasicMaterial({ map: logo.tex, transparent: true, side: THREE.DoubleSide, depthWrite: false });
@@ -327,17 +332,9 @@ export function createViewer(canvas) {
 
     // Live plants and moss (decor only)
     if (s.decor && s.moss) {
-      let seed = 7;
-      const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
-      const top = t + sd;
-      const n = Math.max(6, Math.min(40, Math.round(g.iw * g.idp * 0.9)));
-      for (let i = 0; i < n; i++) {
-        const r = 0.15 + rnd() * 0.25;
-        const patch = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 8), i % 2 ? M.moss : M.moss2);
-        patch.scale.y = 0.3;
-        patch.position.set((rnd() - 0.5) * (g.iw - 2 * r), top + 0.02, (rnd() - 0.5) * (g.idp - 2 * r));
-        root.add(patch);
-      }
+      const moss = createMoss(g.iw, g.idp);
+      moss.position.set(0, t + sd + 0.006, 0);
+      root.add(moss);
     }
     if (s.decor && s.monstera) {
       const top = t + sd;
