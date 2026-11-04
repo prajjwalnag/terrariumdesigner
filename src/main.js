@@ -4,9 +4,11 @@ import { createViewer } from './scene.js';
 import { fmtLen, fmtCm, CM_PER_IN, MM_PER_IN, escapeHtml } from './format.js';
 import { loadState, saveState, shareUrl, sanitize, defaults, LIMITS } from './state.js';
 import { buildPanels, packSheets, buildBom, panelSvg, panelCard, BEDS } from './panels.js';
-import { SPECIES, GROUPS, STAGES, speciesById, legSpanCm, speciesInfo } from './species.js';
+import { SPECIES, GROUPS, STAGES, speciesById, legSpanCm, speciesInfo, filterSpecies } from './species.js';
 import { suggestBox } from './fit.js';
 import { plantChecks } from './plants.js';
+import { speciesCardHtml } from './speciescard.js';
+import { GLOSSARY, CARE_BASICS } from './glossary.js';
 import { LOGOS, rasterise, thumb } from './logos.js';
 import sketch from './esp32cam.ino?raw';
 import { analyseStl, supportsHint } from './printcheck.js';
@@ -168,21 +170,7 @@ function renderSpeciesCard() {
   const el = $('speciescard');
   const i = speciesInfo(state.species);
   el.hidden = !i;
-  if (!i) return;
-  const fact = (k, v, wide) => `<div${wide ? ' class="wide"' : ''}><dt>${k}</dt><dd>${escapeHtml(v)}</dd></div>`;
-  el.innerHTML = `<h2>${escapeHtml(i.name)}</h2><p class="sci">${escapeHtml(i.sci)}</p>
-    <div class="tags"><span class="tag">${i.type === 'terr' ? 'Ground dweller' : 'Tree dweller'}</span><span class="tag">${escapeHtml(i.group)}</span><span class="tag l${i.level}">${escapeHtml(i.temper)}</span></div>
-    <dl class="facts">
-      ${fact('Adult leg span', `about ${i.cm} cm · your design uses ${fmtCm(state.ls)}`)}
-      ${fact('Typical lifespan (female)', i.life)}
-      ${fact('Origin', i.origin)}
-      ${fact('Temperature', i.temp)}
-      ${fact('Humidity', i.rh)}
-      ${fact('Set-up', i.setup)}
-      ${fact('Feeding', i.diet, true)}
-    </dl>
-    ${i.level === 2 || i.note ? `<p class="caution">${escapeHtml(i.note || 'Fast and defensive. Plan a secure lid and avoid handling.')}</p>` : ''}
-    <p class="fine">General guidance with rounded, approximate ranges that I have not checked against sources. Always research your species and ask experienced keepers.</p>`;
+  if (i) el.innerHTML = speciesCardHtml(i, fmtCm(state.ls));
 }
 
 function describeSpecies() {
@@ -500,3 +488,42 @@ $('print').onclick = () => {
     <p class="muted">Check all dimensions before cutting. This tool checks geometry only; research your species' needs.</p>`;
   window.print();
 };
+
+// ---------- encyclopedia ----------
+const LEVELS = ['Calm', 'Skittish', 'Fast or defensive'];
+$('encgroup').innerHTML = `<option value="">All groups</option>${GROUPS.map((g) => `<option>${escapeHtml(g)}</option>`).join('')}`;
+$('enclevel').innerHTML = `<option value="">Any temperament</option>${LEVELS.map((l, i) => `<option value="${i}">${l}</option>`).join('')}`;
+$('encgloss').innerHTML = GLOSSARY.map(([t, d]) => `<div><dt>${escapeHtml(t)}</dt><dd>${escapeHtml(d)}</dd></div>`).join('');
+$('enccare').innerHTML = CARE_BASICS.map((c) => `<li>${escapeHtml(c)}</li>`).join('');
+let encPick = '';
+
+function renderEncyclopedia() {
+  const list = filterSpecies({ q: $('encq').value, group: $('encgroup').value, level: $('enclevel').value });
+  $('enccount').textContent = `${list.length} of ${SPECIES.length} species`;
+  $('encgrid').innerHTML = list.length
+    ? list.map((sp) => {
+      const i = speciesInfo(sp.id);
+      return `<button type="button" class="enc-card${sp.id === encPick ? ' on' : ''}" data-enc="${sp.id}" aria-pressed="${sp.id === encPick}">
+        <b>${escapeHtml(sp.name)}</b><i>${escapeHtml(sp.sci)}</i>
+        <span><span class="tag l${i.level}">${escapeHtml(LEVELS[i.level])}</span><span class="tag">${sp.type === 'terr' ? 'Ground' : 'Tree'}</span><span class="tag">${sp.cm} cm</span></span></button>`;
+    }).join('')
+    : '<p class="hint">No species match. Try a shorter search.</p>';
+  const detail = $('encdetail');
+  const info = speciesInfo(encPick);
+  detail.hidden = !info;
+  if (info) detail.innerHTML = `${speciesCardHtml(info)}<div class="row"><button id="encdesign" class="btn primary" type="button">Design an enclosure for this spider</button></div>`;
+}
+['encq', 'encgroup', 'enclevel'].forEach((id) => $(id).addEventListener('input', renderEncyclopedia));
+$('encgrid').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-enc]');
+  if (!b) return;
+  encPick = b.dataset.enc === encPick ? '' : b.dataset.enc;
+  renderEncyclopedia();
+  if (encPick) $('encdetail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+});
+$('encdetail').addEventListener('click', (e) => {
+  if (!e.target.closest('#encdesign')) return;
+  applySpecies(encPick);
+  $('designer').scrollIntoView({ behavior: 'smooth' });
+});
+renderEncyclopedia();

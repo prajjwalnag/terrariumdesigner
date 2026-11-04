@@ -120,3 +120,15 @@ export function speciesInfo(id) {
     note: sp.note || '',
   };
 }
+
+/** Filter the library by text (name, scientific name, origin, group), group and temperament level. */
+export function filterSpecies({ q = '', group = '', level = '' } = {}) {
+  const needle = q.trim().toLowerCase();
+  return SPECIES.filter((sp) => {
+    if (group && sp.group !== group) return false;
+    const info = speciesInfo(sp.id);
+    if (level !== '' && String(info.level) !== String(level)) return false;
+    if (!needle) return true;
+    return [sp.name, sp.sci, info.origin, sp.group].some((t) => t.toLowerCase().includes(needle));
+  });
+}

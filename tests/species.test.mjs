@@ -44,3 +44,15 @@ test('every species has complete info', () => {
   }
   assert.equal(speciesInfo('nope'), null);
 });
+
+import { filterSpecies } from '../src/species.js';
+import { GLOSSARY } from '../src/glossary.js';
+test('encyclopedia filtering works', () => {
+  assert.equal(filterSpecies().length, SPECIES.length);
+  assert.ok(filterSpecies({ q: 'rosea' }).some((s) => s.id === 'g-rosea'));
+  assert.ok(filterSpecies({ q: 'india' }).every((s) => /poe-/.test(s.id)));
+  assert.ok(filterSpecies({ group: 'Jumping spiders' }).every((s) => s.group === 'Jumping spiders'));
+  assert.ok(filterSpecies({ level: 2 }).length > 0);
+  assert.equal(filterSpecies({ q: 'zzzz' }).length, 0);
+  assert.ok(GLOSSARY.length >= 10 && GLOSSARY.every(([t, d]) => t && d));
+});

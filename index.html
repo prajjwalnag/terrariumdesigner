@@ -23,6 +23,7 @@
   <nav aria-label="Main">
     <a href="#designer">Designer</a>
     <a href="#export">Export</a>
+    <a href="#encyclopedia">Encyclopedia</a>
     <a href="#guide">Build guide</a>
     <a href="#camera">Camera code</a>
     <a href="#about">About</a>
@@ -38,7 +39,7 @@
   <p class="lead">Pick your spider, size the box and watch it update in 3D. We check the floor space, climbing height and camera view, then export laser-cut acrylic panels you can send straight to a cutter.</p>
   <ul class="chips" aria-label="What you get">
     <li>Live 3D preview</li>
-    <li>33 species</li>
+    <li>33-species encyclopedia</li>
     <li>Fit checks per spider type</li>
     <li>Camera field of view</li>
     <li>SVG for laser cutting</li>
@@ -232,6 +233,25 @@
         <div id="panels"></div>
       </div>
     </div>
+  </div>
+</section>
+
+<section class="inner" id="encyclopedia">
+  <h2 class="big">Spider encyclopedia</h2>
+  <p class="note">Browse every species in the library. Pick one to see its details, then send it straight to the designer.</p>
+  <div class="enc-bar">
+    <label class="field"><span class="lbl">Search</span><input type="search" id="encq" placeholder="Name, origin or group" autocomplete="off"></label>
+    <label class="field"><span class="lbl">Group</span><select id="encgroup"></select></label>
+    <label class="field"><span class="lbl">Temper</span><select id="enclevel"></select></label>
+    <span id="enccount" class="hint" aria-live="polite"></span>
+  </div>
+  <div class="enc-layout">
+    <div id="encgrid" class="enc-grid"></div>
+    <section id="encdetail" class="card spinfo" hidden></section>
+  </div>
+  <div class="guide-grid">
+    <div class="card"><h3>Glossary</h3><dl id="encgloss" class="gloss"></dl></div>
+    <div class="card"><h3>Care basics</h3><ul id="enccare" class="tips"></ul><p class="hint">Very general. Check the needs of your own species.</p></div>
   </div>
 </section>
 

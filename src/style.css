@@ -228,3 +228,23 @@ section.inner { padding: 44px 16px; }
 .facts .wide { grid-column: 1 / -1; }
 .spinfo .caution { margin: 12px 0 0; padding: 9px 13px; border-radius: 10px; background: color-mix(in srgb, var(--warn) 14%, transparent); font-size: 13.5px; }
 .spinfo .fine { color: var(--muted); font-size: 12px; margin: 10px 0 0; }
+
+/* encyclopedia */
+input[type='search'] { width: 100%; font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--border); border-radius: 9px; padding: 7px 9px; }
+.enc-bar { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin-bottom: 14px; }
+.enc-bar .field { flex: 1 1 200px; margin: 0; }
+.enc-layout { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(280px, 1fr); gap: 16px; align-items: start; }
+.enc-layout:has(#encdetail[hidden]) { grid-template-columns: 1fr; }
+.enc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.enc-card { text-align: left; display: flex; flex-direction: column; gap: 3px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 11px 13px; cursor: pointer; color: var(--text); min-width: 0; }
+.enc-card:hover { border-color: var(--accent); }
+.enc-card.on { border-color: var(--accent); background: var(--accent-soft); }
+.enc-card b { font-size: 14.5px; }
+.enc-card i { color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.enc-card > span { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.enc-card .tag { font-size: 11.5px; padding: 2px 8px; }
+#encdetail { position: sticky; top: 72px; }
+.gloss { margin: 12px 0 0; display: grid; gap: 10px; }
+.gloss dt { font-weight: 650; font-size: 14px; }
+.gloss dd { margin: 2px 0 0; color: var(--muted); font-size: 13.5px; }
+@media (max-width: 860px) { .enc-layout { grid-template-columns: 1fr; } #encdetail { position: static; } }
