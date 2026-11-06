@@ -257,3 +257,13 @@ input[type='search'] { width: 100%; font: inherit; color: var(--text); backgroun
 .music input[type='range'] { width: 84px; }
 #music[aria-pressed='true'] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 @media (max-width: 640px) { .music input[type='range'] { width: 56px; } }
+
+/* door */
+.doorparts { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 4px; }
+.dpart { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; background: var(--card2); border-radius: 10px; padding: 8px 12px; }
+.dpart b { font-size: 13.5px; }
+.dpart b i { font-style: normal; color: var(--accent); font-weight: 600; }
+.dpart span { grid-column: 1; color: var(--muted); font-size: 12px; }
+.dpart .btn { grid-column: 2; grid-row: 1 / span 2; padding: 4px 10px; font-size: 12.5px; }
+.stage-ctl { flex-wrap: wrap; gap: 4px 14px; }
+.stage-ctl[hidden] { display: none; }

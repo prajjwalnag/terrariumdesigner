@@ -23,6 +23,9 @@ export const defaults = () => ({
   lift: 0,
   auto: true,
   spider: true,
+  door: false,
+  hinge: 'left',
+  doorOpen: 0,
   monstera: false,
   moss: false,
   ventMm: null,
@@ -59,9 +62,10 @@ function applyQuery(s, search) {
   if (vm != null) s.ventMm = vm;
   const pick = (k, list) => (list.includes(q.get(k)) ? q.get(k) : null);
   s.cpos = pick('cpos', ['top', 'side', 'corner']) ?? s.cpos;
+  s.hinge = pick('hinge', ['left', 'right']) ?? s.hinge;
   s.type = pick('type', ['terr', 'arb']) ?? s.type;
   s.unit = pick('unit', ['in', 'cm']) ?? s.unit;
-  for (const k of ['cam', 'decor', 'vents', 'logo', 'spider', 'monstera', 'moss']) {
+  for (const k of ['cam', 'decor', 'vents', 'logo', 'spider', 'monstera', 'moss', 'door']) {
     if (q.get(k) === '0' || q.get(k) === '1') s[k] = q.get(k) === '1';
   }
   return s;
@@ -78,6 +82,7 @@ export function loadState() {
   applyQuery(s, location.search);
   s.toys = sanitizeToys(s.toys);
   s.lift = 0;
+  s.doorOpen = 0;
   return s;
 }
 
@@ -95,7 +100,7 @@ export function shareUrl(s) {
     w: +s.w.toFixed(3), d: +s.d.toFixed(3), h: +s.h.toFixed(3),
     ls: +(s.ls * CM_PER_IN).toFixed(1), sd: s.sd, t: s.t > 0.15 ? 5 : 3,
     type: s.type, cpos: s.cpos, unit: s.unit,
-    cam: +s.cam, decor: +s.decor, vents: +s.vents, logo: +s.logo, spider: +s.spider, monstera: +s.monstera, moss: +s.moss,
+    cam: +s.cam, decor: +s.decor, vents: +s.vents, logo: +s.logo, spider: +s.spider, monstera: +s.monstera, moss: +s.moss, door: +s.door, hinge: s.hinge,
   });
   if (s.ventMm != null) q.set('vm', s.ventMm);
   return `${location.origin}${location.pathname}?${q}`;
@@ -110,7 +115,7 @@ export function sanitize(obj) {
   if (!obj || typeof obj !== 'object') return out;
   for (const [k, def] of Object.entries(base)) {
     const v = obj[k];
-    if (v === undefined || k === 'lift') continue;
+    if (v === undefined || k === 'lift' || k === 'doorOpen') continue;
     if (k === 'species') { if (typeof v === 'string' && /^[a-z0-9-]{0,24}$/.test(v)) out.species = v; continue; }
     if (k === 'stage') { if (['sling', 'juv', 'adult'].includes(v)) out.stage = v; continue; }
     if (k === 'toys') { out.toys = sanitizeToys(v); continue; }
@@ -123,6 +128,7 @@ export function sanitize(obj) {
       if (inRange(v, lo, hi)) out[k] = v;
     } else if (k === 'unit') { if (['in', 'cm'].includes(v)) out[k] = v; }
     else if (k === 'type') { if (['terr', 'arb'].includes(v)) out[k] = v; }
+    else if (k === 'hinge') { if (['left', 'right'].includes(v)) out[k] = v; }
     else if (k === 'cpos') { if (['top', 'side', 'corner'].includes(v)) out[k] = v; }
     else if (k === 'bed') { if (typeof v === 'string' && /^\d+x\d+$/.test(v)) out[k] = v; }
     else out[k] = v;

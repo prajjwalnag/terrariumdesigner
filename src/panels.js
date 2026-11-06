@@ -1,5 +1,6 @@
 import { MM_PER_IN, round2, escapeHtml } from './format.js';
 import { plantBom } from './plants.js';
+import { doorLayout, ventBlockedByHinge, SCREW, DOOR_GAP, BOT_GAP } from './door.js';
 import { CAM_HOLE_MM, ventLayout, ventBlockedByCamera, magnetRadius } from './calc.js';
 
 export const BEDS = {
@@ -17,8 +18,19 @@ export function buildPanels(s, g) {
   const mk = (id, name, w, h) => ({ id, name, w, h, holes: [], engrave: [] });
   const panels = [];
 
-  const front = mk('front', 'Front', W * mm, hw * mm);
-  if (s.logo) {
+  const DL = doorLayout(s, g);
+  const front = DL.on ? mk('door', 'Door', DL.doorW, DL.doorH) : mk('front', 'Front', W * mm, hw * mm);
+  if (DL.on) {
+    // Door: hinge-side coordinates run from the hinge edge; mirror them for a right-hinged door.
+    const px = (xd) => (DL.side === 'left' ? xd : DL.doorW - xd);
+    front.holes.push({ x: px(DL.knob.xd), y: DL.knob.y - BOT_GAP, d: 2 * SCREW, hw: true });
+    DL.hinges.forEach((h) => [8, 18].forEach((d) => front.holes.push({ x: px(d), y: h.yc - BOT_GAP, d: 2 * SCREW, hw: true })));
+    if (s.logo) {
+      const L = DL.logo, size = L.size;
+      const box = { x: px(L.xd) - size / 2, y: L.y - BOT_GAP - size / 2, w: size, h: size };
+      front.engrave.push(s.logoData ? { type: 'image', ...box, href: s.logoData } : { type: 'rect', ...box, label: 'logo area' });
+    }
+  } else if (s.logo) {
     const size = Math.min(W * 0.5, hw * 0.6) * mm;
     const cx = (W * mm) / 2;
     const cy = hw * 0.45 * mm;
@@ -39,12 +51,18 @@ export function buildPanels(s, g) {
   vent.ys.forEach((y) => {
     vent.zs.forEach((z) => {
       const x = ((D - 2 * t) / 2 + z) * mm;
-      left.holes.push({ x, y: (y - t) * mm, d: g.ventMm });
-      if (!ventBlockedByCamera(s, g, z, y)) right.holes.push({ x, y: (y - t) * mm, d: g.ventMm });
+      if (!ventBlockedByHinge(s, g, 'left', z, y)) left.holes.push({ x, y: (y - t) * mm, d: g.ventMm });
+      if (!ventBlockedByCamera(s, g, z, y) && !ventBlockedByHinge(s, g, 'right', z, y)) right.holes.push({ x, y: (y - t) * mm, d: g.ventMm });
     });
   });
   if (g.cam && g.cam.mode === 'side') {
     right.holes.push({ x: ((D - 2 * t) / 2) * mm, y: (g.camY - t) * mm, d: CAM_HOLE_MM, cam: true });
+  }
+  if (DL.on) {
+    // Hinge leaves screw onto the outside of the hinge-side wall, 8 and 18 mm back from its front edge.
+    // Viewed from outside the left wall the front edge is on the right; for the right wall it is on the left.
+    const wall = DL.side === 'left' ? left : right;
+    DL.hinges.forEach((h) => [8, 18].forEach((d) => wall.holes.push({ x: DL.side === 'left' ? wall.w - d : d, y: h.yc, d: 2 * SCREW, hw: true })));
   }
   panels.push(left, right, mk('base', 'Base', W * mm, D * mm));
 
@@ -135,7 +153,7 @@ export function packSheets(panels, bed, gap = 6) {
 
 /** Sizes and shopping list derived from the design. */
 export function buildBom(s, g, panels) {
-  const holes = panels.reduce((n, p) => n + p.holes.filter((h) => !h.cam).length, 0);
+  const holes = panels.reduce((n, p) => n + p.holes.filter((h) => !h.cam && !h.hw).length, 0);
   const areaMm2 = panels.reduce((a, p) => a + p.w * p.h, 0);
   const IN3_TO_L = 0.016387;
   const substrateL = s.decor ? g.iw * g.idp * g.sd * IN3_TO_L : 0;
@@ -148,6 +166,17 @@ export function buildBom(s, g, panels) {
   if (s.cam) items.push({ name: 'ESP32-CAM module', qty: '1', note: `Needs a ${CAM_HOLE_MM} mm hole${s.cpos === 'corner' ? ' (angled slot)' : ''} and a 5 V supply. Keep the board outside the humid box.` });
   if (s.vents) items.push({ name: 'Vent holes', qty: `${holes} × ${g.ventMm} mm`, note: 'Cut by the laser. Optionally cover with fine mesh from the outside.' });
   if (s.decor) items.push({ name: 'Substrate', qty: `about ${substrateL.toFixed(1)} L`, note: `${(g.sd * MM_PER_IN).toFixed(0)} mm deep. Slightly more if you plan to burrow-pack it.` });
+  const DL = doorLayout(s, g);
+  if (DL.on) {
+    const T = s.t > 0.15 ? 5 : 3, screw = Math.ceil((3 + T + 2.4 + 1) / 2) * 2;
+    items.push(
+      { name: 'Door hinges (3D-printed)', qty: `${DL.count} pairs (frame half and door half)`, note: `Hinge on the ${DL.side}. Each stands ${DL.Hh.toFixed(0)} mm tall. The frame half screws to the side wall and the door half to the door.` },
+      { name: 'Hinge pins', qty: `${DL.count}, about ${(DL.Hh + 2).toFixed(0)} mm long`, note: '3 mm steel rod, an M3 bolt or 3 mm filament. A printed pin also works.' },
+      { name: 'M3 screws and nuts', qty: `${DL.count * 4} × M3 × ${screw} mm with nuts`, note: 'Hinge leaves. Holes are cut 3.2 mm wide. Fit with the nut on the inside; a drop of thread-lock keeps them tight.' },
+      { name: 'Door knob (3D-printed)', qty: `1, with one M3 × ${Math.ceil((T + 11) / 2) * 2} mm self-tapping screw`, note: 'The screw goes in from inside the door into the knob’s pilot hole.' },
+      { name: 'Magnet catch', qty: '2 printed blocks, 2 disc magnets 6 × 3 mm', note: 'Glue one block to the inside of the door and one to the far wall, with the magnets facing each other. Check polarity first.' },
+    );
+  }
   items.push(...plantBom(s));
   items.push({ name: 'Acrylic cement', qty: '1 small bottle', note: 'Thin solvent cement (for example Weld-On 4) for the wall seams.' });
   return items;

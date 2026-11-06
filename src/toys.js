@@ -49,7 +49,7 @@ function cached(key, make) {
  * Every toy is built as ONE unioned solid (no overlapping shells for the slicer to repair).
  * Shapes use centre positions; solids made by a kit are freed when the result is converted.
  */
-function csgKit() {
+export function csgKit() {
   const pool = [];
   const keep = (m) => { pool.push(m); return m; };
   const tr = (m, x, y, z) => keep(m.translate([x, y, z]));

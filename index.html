@@ -114,6 +114,19 @@
     </section>
 
     <section class="card">
+      <h2>Side-opening door</h2>
+      <label class="chk"><input type="checkbox" data-bind="door"> Hinged door on the front</label>
+      <div class="row"><span class="lbl">Hinge on</span>
+        <div class="seg" role="group" aria-label="Hinge side">
+          <button type="button" data-set="hinge:left">Left</button>
+          <button type="button" data-set="hinge:right">Right</button>
+        </div>
+      </div>
+      <div id="doorparts" class="doorparts"></div>
+      <p class="hint">The front panel becomes a door that swings outward on printed hinges, with a printed knob and a magnet catch. Use the "Open door" slider above the preview to try it.</p>
+    </section>
+
+    <section class="card">
       <h2>Plants and moss</h2>
       <label class="chk"><input type="checkbox" data-bind="monstera"> Monstera adansonii</label>
       <label class="chk"><input type="checkbox" data-bind="moss"> Moss</label>
@@ -185,6 +198,7 @@
         </div>
         <div class="stage-ctl">
           <label class="slider lid">Open lid <input type="range" id="lid" min="0" max="100" step="1"></label>
+          <label class="slider lid" id="doorlbl" hidden>Open door <input type="range" id="dooropen" min="0" max="100" step="1" value="0"></label>
           <label class="chk"><input type="checkbox" data-bind="auto"> Auto-rotate</label>
         </div>
       </div>

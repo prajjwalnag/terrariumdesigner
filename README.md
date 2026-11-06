@@ -10,6 +10,7 @@ npm run build:single  # one self-contained HTML file in dist-single/ (opens from
 npm run preview       # serve the build
 npm test              # fit checks, exports, toy mesh and printability tests
 node tests/printability.mjs   # per-toy mesh and overhang report
+node tests/doorsim.mjs        # door swing simulation (frame, hinges, knob, catch, lid brackets)
 ```
 
 ## Putting it online
@@ -29,6 +30,7 @@ Any static host also works: upload the contents of `dist/`, or just the single f
 - `src/printcheck.js` mesh and overhang checks
 - `src/panels.js` SVG export, laser-bed packing, shopping list
 - `src/esp32cam.ino` camera sketch with live view, motion detection and microSD photos (not compiled or run in this repo's tests)
+- `src/door.js` side-opening door: hinge, pin, knob and catch solids, door layout, panel hole positions
 - `src/music.js` generated jungle-safari background sound (Web Audio, no audio files)
 - `src/main.js` UI
 

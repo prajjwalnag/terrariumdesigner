@@ -8,6 +8,7 @@ import { SPECIES, GROUPS, STAGES, speciesById, legSpanCm, speciesInfo, filterSpe
 import { suggestBox } from './fit.js';
 import { plantChecks } from './plants.js';
 import { createJungle } from './music.js';
+import { doorLayout, doorChecks, partStl, PARTS } from './door.js';
 import { speciesCardHtml } from './speciescard.js';
 import { GLOSSARY, CARE_BASICS } from './glossary.js';
 import { LOGOS, rasterise, thumb } from './logos.js';
@@ -69,6 +70,8 @@ function syncControls() {
   $('sb').value = state.sd;
   $('brk').value = state.brk;
   $('lid').value = Math.round(state.lift * 100);
+  $('dooropen').value = Math.round(state.doorOpen * 100);
+  $('doorlbl').hidden = !state.door;
   const digits = state.unit === 'cm' ? 1 : 2;
   $('iw').value = (state.w * unitScale()).toFixed(digits);
   $('idp').value = (state.d * unitScale()).toFixed(digits);
@@ -109,9 +112,15 @@ function renderResults() {
 
 function update() {
   geo = analyze(state);
-  geo.rows.push(...toyChecks(state, geo), ...plantChecks(state, geo));
+  geo.rows.push(...toyChecks(state, geo), ...plantChecks(state, geo), ...doorChecks(state, geo, 180));
+  const DL = doorLayout(state, geo);
+  if (DL.on) {
+    geo.cut = geo.cut.map((r) => (r[0] === 'Front and back (2)' ? ['Back (1)', r[1]] : r));
+    geo.cut.push(['Door (replaces front)', `${DL.doorW.toFixed(1)} × ${DL.doorH.toFixed(1)} mm`], ['Door hinges', `${DL.count} on the ${DL.side}, 3D-printed`]);
+  }
   viewer.rebuild(state, geo);
   renderResults();
+  renderDoorParts();
   saveState(state);
 }
 
@@ -163,6 +172,7 @@ $('ls').onchange = () => renderToys();
 $('sb').oninput = (e) => { state.sd = parseFloat(e.target.value); update(); };
 $('brk').oninput = (e) => { state.brk = parseFloat(e.target.value); update(); };
 $('lid').oninput = (e) => { state.lift = e.target.value / 100; viewer.applyLift(state); };
+$('dooropen').oninput = (e) => { state.doorOpen = e.target.value / 100; viewer.applyLift(state); };
 
 // ---------- species ----------
 $('species').innerHTML = `<option value="">Choose a spider…</option>${GROUPS.map((g) => `<optgroup label="${escapeHtml(g)}">${SPECIES.filter((x) => x.group === g).map((x) => `<option value="${x.id}">${escapeHtml(x.name)} (${escapeHtml(x.sci)})</option>`).join('')}</optgroup>`).join('')}`;
@@ -548,3 +558,24 @@ $('musicvol').oninput = (e) => {
   music.setVolume(e.target.value / 100);
   try { localStorage.setItem('terrarium-music-vol', e.target.value); } catch { /* ignore */ }
 };
+
+// ---------- door hardware ----------
+const PART_QTY = (L) => ({ hingeFrame: L.count, hingeDoor: L.count, pin: L.count, knob: 1, catch: 2 });
+function renderDoorParts() {
+  const L = doorLayout(state, geo);
+  const el = $('doorparts');
+  if (!L.on) { el.innerHTML = ''; return; }
+  const qty = PART_QTY(L);
+  el.innerHTML = Object.entries(PARTS).map(([k, p]) => `<div class="dpart"><b>${escapeHtml(p.name)} <i>× ${qty[k]}</i></b><span>${escapeHtml(p.note)}</span><button type="button" class="btn" data-part="${k}">STL</button></div>`).join('')
+    + '<button id="doorall" class="btn" type="button">Download all door STL</button>';
+}
+async function savePart(k) {
+  const L = doorLayout(state, geo);
+  if (!L.on) return;
+  download(`door-${k}.stl`, await partStl(k, L), 'model/stl');
+}
+$('doorparts').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-part]');
+  if (b) return savePart(b.dataset.part);
+  if (e.target.closest('#doorall')) Object.keys(PARTS).forEach((k, i) => setTimeout(() => savePart(k), i * 300));
+});

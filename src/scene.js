@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { ventLayout, ventBlockedByCamera } from './calc.js';
+import { doorLayout, partGeometry, ventBlockedByHinge, PIVOT, DOOR_GAP, BOT_GAP, DOOR_MAX_DEG, CATCH } from './door.js';
 import { createMoss, makeSoilTexture } from './moss.js';
 import { buildToy, toyPlacement, toySizeMm } from './toys.js';
 import { MM_PER_IN } from './format.js';
@@ -159,6 +160,7 @@ export function createViewer(canvas) {
   const orbit = { th: 0.75, ph: 1.15, dist: 14, ty: 2, drag: false, lx: 0, ly: 0, minD: 4, maxD: 80, goal: null };
   let root = null;
   let lid = null;
+  let doorPivot = null;
   let frustum = null;
   let current = null; // { s, g }
   const toyRoots = [];
@@ -185,6 +187,12 @@ export function createViewer(canvas) {
     const { g } = current;
     lid.position.set(0, g.H + g.t / 2 + s.lift * Math.max(2.2, g.H * 0.55), 0);
     if (frustum) frustum.visible = s.cpos === 'side' || s.lift < 0.02;
+    applyDoor(s);
+  }
+
+  /** Swing the door about its hinge axis. The door group lives in mirrored corner space, so the same angle serves both hinge sides. */
+  function applyDoor(s = current && current.s) {
+    if (doorPivot && s) doorPivot.rotation.y = (-s.doorOpen * DOOR_MAX_DEG * Math.PI) / 180;
   }
 
   function disposeRoot() {
@@ -204,7 +212,9 @@ export function createViewer(canvas) {
 
     // Acrylic shell
     box(W, t, D, 0, t / 2, 0, M.acrylic, root, true); // base
-    box(W, hw, t, 0, t + hw / 2, D / 2 - t / 2, M.acrylic, root, true); // front
+    const DL = doorLayout(s, g);
+    doorPivot = null;
+    if (!DL.on) box(W, hw, t, 0, t + hw / 2, D / 2 - t / 2, M.acrylic, root, true); // front (the door replaces it when enabled)
     box(W, hw, t, 0, t + hw / 2, -(D / 2 - t / 2), M.acrylic, root, true); // back
     box(t, hw, D - 2 * t, W / 2 - t / 2, t + hw / 2, 0, M.acrylic, root, true); // right
     box(t, hw, D - 2 * t, -(W / 2 - t / 2), t + hw / 2, 0, M.acrylic, root, true); // left
@@ -220,7 +230,8 @@ export function createViewer(canvas) {
     const magR = Math.min(0.15, pad * 0.32);
     const magInset = pad * 0.5;
     [-1, 1].forEach((sx) => [-1, 1].forEach((sz) => {
-      box(arm, legH, th, sx * (W / 2 + th - arm / 2), H - legH / 2, sz * (D / 2 + th / 2), M.bracket, root, false);
+      // The arm along the front face would block the swinging door, so a door replaces it at the front corners.
+      if (!(DL.on && sz === 1)) box(arm, legH, th, sx * (W / 2 + th - arm / 2), H - legH / 2, sz * (D / 2 + th / 2), M.bracket, root, false);
       box(th, legH, arm, sx * (W / 2 + th / 2), H - legH / 2, sz * (D / 2 + th - arm / 2), M.bracket, root, false);
       const foot = pad + t + th;
       box(foot, 0.1, foot, sx * ((W / 2 - t - pad + (W / 2 + th)) / 2), H - 0.05, sz * ((D / 2 - t - pad + (D / 2 + th)) / 2), M.bracket, root, false);
@@ -274,16 +285,18 @@ export function createViewer(canvas) {
       const disc = new THREE.CircleGeometry(0.06, 12);
       v.ys.forEach((y) => {
         v.zs.forEach((z) => {
-          if (!ventBlockedByCamera(s, g, z, y)) {
+          if (!ventBlockedByCamera(s, g, z, y) && !ventBlockedByHinge(s, g, 'right', z, y)) {
             const r = new THREE.Mesh(disc, M.vent);
             r.rotation.y = Math.PI / 2;
             r.position.set(W / 2 - t / 2, y, z);
             root.add(r);
           }
-          const l = new THREE.Mesh(disc, M.vent);
-          l.rotation.y = Math.PI / 2;
-          l.position.set(-(W / 2 - t / 2), y, z);
-          root.add(l);
+          if (!ventBlockedByHinge(s, g, 'left', z, y)) {
+            const l = new THREE.Mesh(disc, M.vent);
+            l.rotation.y = Math.PI / 2;
+            l.position.set(-(W / 2 - t / 2), y, z);
+            root.add(l);
+          }
         });
         v.xs.forEach((x) => {
           const b = new THREE.Mesh(disc, M.vent);
@@ -294,7 +307,7 @@ export function createViewer(canvas) {
     }
 
     // Logo on the front panel
-    if (s.logo) {
+    if (s.logo && !DL.on) {
       const size = Math.min(W * 0.5, hw * 0.6);
       const p = new THREE.Mesh(new THREE.PlaneGeometry(size, size), logoMat);
       p.position.set(0, t + hw * 0.45, D / 2 + 0.004);
@@ -354,6 +367,47 @@ export function createViewer(canvas) {
         leaf.rotation.set(-0.5, -ang + Math.PI / 2, 0, 'YXZ');
         root.add(leaf);
       }
+    }
+
+    // Side-opening door: everything is built in millimetres in "corner space" (see door.js) and mirrored for a right-hinged door.
+    if (DL.on) {
+      const MM = 25.4, sx = DL.side === 'left' ? -1 : 1;
+      const corner = new THREE.Group();
+      corner.position.set(sx * (W / 2), t, D / 2);
+      corner.scale.set(-sx / MM, 1 / MM, 1 / MM);
+      root.add(corner);
+      const part = (name, mat, x, y, z, rx = 0, parent = corner) => {
+        const m = new THREE.Mesh(partGeometry(name, DL), mat);
+        m.position.set(x, y, z);
+        m.rotation.x = rx;
+        parent.add(m);
+        return m;
+      };
+      // Frame side: hinge halves, pins and the partner catch block stay put.
+      DL.hinges.forEach((h) => {
+        part('hingeFrame', M.toy, 0, h.yb, 0);
+        const pin = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, DL.Hh + 1.6, 16), M.metal);
+        pin.position.set(PIVOT[0], h.yb + (DL.Hh + 1.6) / 2 - 0.5, PIVOT[1]);
+        corner.add(pin);
+      });
+      part('catch', M.toy, DL.catchFX, DL.catchY, -DL.T - 8.6 - CATCH.t, Math.PI / 2);
+      // Door side: plate, hinge halves, knob, catch block and logo swing together about the hinge axis.
+      const pivot = new THREE.Group();
+      pivot.position.set(PIVOT[0], 0, PIVOT[1]);
+      corner.add(pivot);
+      const doorG = new THREE.Group();
+      doorG.position.set(-PIVOT[0], 0, -PIVOT[1]);
+      pivot.add(doorG);
+      box(DL.doorW, DL.doorH, DL.T, DOOR_GAP + DL.doorW / 2, BOT_GAP + DL.doorH / 2, -DL.T / 2, M.acrylic, doorG, true);
+      DL.hinges.forEach((h) => part('hingeDoor', M.toy, 0, h.yb, 0, 0, doorG));
+      part('knob', M.toy, DL.knob.x, DL.knob.y, 0, Math.PI / 2, doorG);
+      part('catch', M.toy, DL.catchX, DL.catchY, -DL.T, -Math.PI / 2, doorG);
+      if (s.logo) {
+        const lp = new THREE.Mesh(new THREE.PlaneGeometry(DL.logo.size, DL.logo.size), logoMat);
+        lp.position.set(DL.logo.x, DL.logo.y, 0.1);
+        doorG.add(lp);
+      }
+      doorPivot = pivot;
     }
 
     // Printed toys
