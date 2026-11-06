@@ -1,27 +1,54 @@
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { ventLayout, ventBlockedByCamera } from './calc.js';
-import { doorLayout, partGeometry, ventBlockedByHinge, PIVOT, DOOR_GAP, BOT_GAP, DOOR_MAX_DEG, CATCH } from './door.js';
+import { doorLayout, partGeometry, ventBlockedByHinge, PIVOT, DOOR_GAP, BOT_GAP, DOOR_MAX_DEG, CATCH, LT } from './door.js';
 import { createMoss, makeSoilTexture } from './moss.js';
 import { buildToy, toyPlacement, toySizeMm } from './toys.js';
 import { MM_PER_IN } from './format.js';
 
 const mat = (color, o = {}) => new THREE.MeshStandardMaterial({ color, ...o });
+
+/**
+ * 3D-printed plastic: a satin surface with faint horizontal layer lines, so printed parts read as printed.
+ * The lines are a small normal wobble along world height; they fade out when too fine to resolve (distance, small parts).
+ */
+function printed(color, roughness = 0.55) {
+  const m = new THREE.MeshStandardMaterial({ color, roughness, metalness: 0.02 });
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;')
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+      {
+        float f = 210.0;                                   // about 0.75 mm between lines (inches)
+        float k = clamp(1.0 - fwidth(vWPos.y) * f * 0.6, 0.0, 1.0);
+        vec3 up = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
+        normal = normalize(normal + up * sin(vWPos.y * f) * 0.16 * k);
+      }`);
+  };
+  m.customProgramCacheKey = () => 'printed-layers';
+  return m;
+}
 const M = {
-  acrylic: mat(0xbfe6f5, { transparent: true, opacity: 0.2, roughness: 0.05, metalness: 0, side: THREE.DoubleSide, depthWrite: false }),
+  acrylic: mat(0xcfeaf4, { transparent: true, opacity: 0.2, roughness: 0.03, metalness: 0, side: THREE.DoubleSide, depthWrite: false, envMapIntensity: 1.6 }),
   edge: new THREE.LineBasicMaterial({ color: 0x4f9dbd, transparent: true, opacity: 0.75 }),
-  bracket: mat(0xe8743b, { roughness: 0.55, metalness: 0.05 }),
-  magnet: mat(0xd9b44a, { roughness: 0.25, metalness: 0.85 }),
+  bracket: printed(0x2a2d31),            // black PETG lid brackets
+  hw: printed(0x2e3135),                  // door hinges, knob and catch
+  magnet: mat(0xb9bcc2, { roughness: 0.22, metalness: 0.95 }),
   vent: new THREE.MeshBasicMaterial({ color: 0x111111, transparent: true, opacity: 0.9, side: THREE.DoubleSide }),
-  spider: mat(0x8a5a35, { roughness: 0.8 }),
-  substrate: mat(0xffffff, { roughness: 1 }),
-  bark: mat(0xb07a40, { roughness: 0.9, side: THREE.DoubleSide }),
+  spider: mat(0x5e3b22, { roughness: 0.9 }),
+  substrate: mat(0xcfc6c0, { roughness: 1 }),
+  bark: mat(0x7b5a3a, { roughness: 0.98, side: THREE.DoubleSide }),
   water: mat(0x4aa3d8, { roughness: 0.2 }),
   plant: mat(0x4c9a3a, { roughness: 0.8 }),
   pcb: mat(0x1f6b3a, { roughness: 0.6 }),
-  metal: mat(0xb8bcc2, { roughness: 0.3, metalness: 0.8 }),
+  metal: mat(0xc3c7cc, { roughness: 0.28, metalness: 0.95 }),
+  steel: mat(0x9da2a8, { roughness: 0.38, metalness: 0.95 }),
   black: mat(0x222222, { roughness: 0.5 }),
-  lens: new THREE.MeshBasicMaterial({ color: 0x3a5fa8 }),
-  toy: mat(0x6fb39a, { roughness: 0.55 }),
+  lens: mat(0x0b1426, { roughness: 0.05, metalness: 0.3, envMapIntensity: 2.2 }),
+  toy: printed(0x6fb39a),
   leaf: mat(0x2f7d3a, { roughness: 0.55, side: THREE.DoubleSide }),
   vine: mat(0x4a6b2a, { roughness: 0.8 }),
   moss: mat(0x5f8f2e, { roughness: 1 }),
@@ -62,10 +89,13 @@ function cameraModule(parent, plateT, extra) {
   const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, len + 0.3, 16), M.black);
   barrel.position.set(0, (0.3 - len) / 2, 0);
   g.add(barrel);
-  const lens = new THREE.Mesh(new THREE.CircleGeometry(0.07, 16), M.lens);
+  const lens = new THREE.Mesh(new THREE.CircleGeometry(0.085, 20), M.lens);
   lens.rotation.x = Math.PI / 2;
   lens.position.set(0, -len - 0.001, 0);
   g.add(lens);
+  const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.118, 0.118, 0.03, 20), M.metal);
+  ring.position.set(0, -len + 0.012, 0);
+  g.add(ring);
   return g;
 }
 
@@ -91,9 +121,20 @@ function makeLogoTexture() {
   const ctx = canvas.getContext('2d');
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
+  /** Laser engraving on clear acrylic looks frosted white, so turn dark ink into a soft white mark. */
+  const frost = () => {
+    const img = ctx.getImageData(0, 0, 512, 512), d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const lum = (d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11) / 255;
+      const a = (d[i + 3] / 255) * (1 - lum);        // dark ink becomes opaque, white background disappears
+      d[i] = 238; d[i + 1] = 246; d[i + 2] = 250; d[i + 3] = Math.round(255 * 0.82 * a);
+    }
+    ctx.putImageData(img, 0, 0);
+    tex.needsUpdate = true;
+  };
   const placeholder = () => {
     ctx.clearRect(0, 0, 512, 512);
-    ctx.strokeStyle = ctx.fillStyle = '#D85A30';
+    ctx.strokeStyle = ctx.fillStyle = '#111111';
     ctx.lineWidth = 10;
     ctx.lineCap = 'round';
     ctx.beginPath(); ctx.arc(256, 220, 150, 0, Math.PI * 2); ctx.stroke();
@@ -111,7 +152,7 @@ function makeLogoTexture() {
     ctx.font = '500 52px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('YOUR LOGO', 256, 450);
-    tex.needsUpdate = true;
+    frost();
   };
   placeholder();
   const set = (dataUrl) => {
@@ -123,7 +164,7 @@ function makeLogoTexture() {
       const w = img.width * k;
       const h = img.height * k;
       ctx.drawImage(img, (512 - w) / 2, (512 - h) / 2, w, h);
-      tex.needsUpdate = true;
+      frost();
     };
     img.src = dataUrl;
   };
@@ -142,7 +183,10 @@ export function createViewer(canvas) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 300);
-  scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture; // soft studio reflections for glass, metal and plastic
+  scene.environmentIntensity = 0.38;
+  scene.add(new THREE.AmbientLight(0xffffff, 0.22));
   const key = new THREE.DirectionalLight(0xffffff, 0.8);
   key.position.set(6, 10, 8);
   scene.add(key);
@@ -153,6 +197,8 @@ export function createViewer(canvas) {
   M.substrate.map = makeSoilTexture();
   M.substrate.bumpMap = M.substrate.map;
   M.substrate.bumpScale = 0.6;
+  M.bark.bumpMap = M.substrate.map;
+  M.bark.bumpScale = 1.4;
 
   const logo = makeLogoTexture();
   const logoMat = new THREE.MeshBasicMaterial({ map: logo.tex, transparent: true, side: THREE.DoubleSide, depthWrite: false });
@@ -384,13 +430,33 @@ export function createViewer(canvas) {
         return m;
       };
       // Frame side: hinge halves, pins and the partner catch block stay put.
+      // Hardware pieces, all in millimetres: M3 pan-head screws with a slot, hex nuts on the inside, a headed pin.
+      const T = DL.T;
+      const cyl = (r, len, mat2, x, y, z, axis, parent, seg = 20) => {
+        const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, seg), mat2);
+        m.position.set(x, y, z);
+        if (axis === 'x') m.rotation.z = Math.PI / 2; else if (axis === 'z') m.rotation.x = Math.PI / 2;
+        parent.add(m);
+        return m;
+      };
+      const screw = (axis, base, dir, x, y, z, parent, nutAt) => {
+        // base: where the head sits (the face), dir: +1 or -1 = which way the head points away from the face.
+        const at = (a) => (axis === 'x' ? [a, y, z] : [x, y, a]);
+        cyl(3, 1.8, M.steel, ...at(base + (dir * 1.8) / 2), axis, parent, 24);                    // head
+        const slot = new THREE.Mesh(axis === 'x' ? new THREE.BoxGeometry(0.4, 4.6, 0.7) : new THREE.BoxGeometry(4.6, 0.7, 0.4), M.black);
+        slot.position.set(...at(base + dir * 1.75));
+        parent.add(slot);
+        const end = nutAt - dir;                                                                  // shank pokes 1 mm through the nut
+        cyl(1.5, Math.abs(end - base), M.steel, ...at((base + end) / 2), axis, parent, 12);       // shank
+        cyl(3.2, 2.4, M.steel, ...at(nutAt + dir * 1.2), axis, parent, 6);                        // hex nut, nutAt = its far face
+      };
       DL.hinges.forEach((h) => {
-        part('hingeFrame', M.toy, 0, h.yb, 0);
-        const pin = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, DL.Hh + 1.6, 16), M.metal);
-        pin.position.set(PIVOT[0], h.yb + (DL.Hh + 1.6) / 2 - 0.5, PIVOT[1]);
-        corner.add(pin);
+        part('hingeFrame', M.hw, 0, h.yb, 0);
+        const pin = cyl(1.5, DL.Hh + 1.6, M.steel, PIVOT[0], h.yb + (DL.Hh + 1.6) / 2 - 0.5, PIVOT[1], 'y', corner, 20);
+        cyl(2.9, 1.6, M.steel, PIVOT[0], h.yb + DL.Hh + 1.1 + 0.8, PIVOT[1], 'y', corner, 24); // pin head
+        [8, 18].forEach((d) => screw('x', -LT, -1, 0, h.yc, -(T + d), corner, T + 2.4));        // frame leaf: head outside, nut inside the wall
       });
-      part('catch', M.toy, DL.catchFX, DL.catchY, -DL.T - 8.6 - CATCH.t, Math.PI / 2);
+      part('catch', M.hw, DL.catchFX, DL.catchY, -DL.T - 8.6 - CATCH.t, Math.PI / 2);
       // Door side: plate, hinge halves, knob, catch block and logo swing together about the hinge axis.
       const pivot = new THREE.Group();
       pivot.position.set(PIVOT[0], 0, PIVOT[1]);
@@ -399,9 +465,13 @@ export function createViewer(canvas) {
       doorG.position.set(-PIVOT[0], 0, -PIVOT[1]);
       pivot.add(doorG);
       box(DL.doorW, DL.doorH, DL.T, DOOR_GAP + DL.doorW / 2, BOT_GAP + DL.doorH / 2, -DL.T / 2, M.acrylic, doorG, true);
-      DL.hinges.forEach((h) => part('hingeDoor', M.toy, 0, h.yb, 0, 0, doorG));
-      part('knob', M.toy, DL.knob.x, DL.knob.y, 0, Math.PI / 2, doorG);
-      part('catch', M.toy, DL.catchX, DL.catchY, -DL.T, -Math.PI / 2, doorG);
+      DL.hinges.forEach((h) => {
+        part('hingeDoor', M.hw, 0, h.yb, 0, 0, doorG);
+        [8, 18].forEach((d) => screw('z', LT, 1, DOOR_GAP + d, h.yc, 0, doorG, -T - 2.4)); // door leaf: head outside, nut inside the door
+      });
+      part('knob', M.hw, DL.knob.x, DL.knob.y, 0, Math.PI / 2, doorG);
+      cyl(3, 1.8, M.steel, DL.knob.x, DL.knob.y, -T - 0.9, 'z', doorG, 24);                       // knob screw head on the inside
+      part('catch', M.hw, DL.catchX, DL.catchY, -DL.T, -Math.PI / 2, doorG);
       if (s.logo) {
         const lp = new THREE.Mesh(new THREE.PlaneGeometry(DL.logo.size, DL.logo.size), logoMat);
         lp.position.set(DL.logo.x, DL.logo.y, 0.1);
